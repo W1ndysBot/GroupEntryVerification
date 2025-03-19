@@ -5,6 +5,9 @@ import os
 import sys
 import re
 import json
+import random
+import time
+import operator
 
 # 添加项目根目录到sys.path
 sys.path.append(
@@ -23,6 +26,16 @@ DATA_DIR = os.path.join(
     "GroupEntryVerification",
 )
 
+# 用户验证状态文件
+USER_VERIFICATION_FILE = os.path.join(DATA_DIR, "user_verification.json")
+# 验证题目文件
+VERIFICATION_QUESTIONS_FILE = os.path.join(DATA_DIR, "verification_questions.json")
+
+# 最大尝试次数
+MAX_ATTEMPTS = 3
+# 禁言时间（30天，单位：秒）
+BAN_DURATION = 30 * 24 * 60 * 60
+
 
 # 查看功能开关状态
 def load_function_status(group_id):
@@ -32,6 +45,100 @@ def load_function_status(group_id):
 # 保存功能开关状态
 def save_function_status(group_id, status):
     save_switch(group_id, "GroupEntryVerification", status)
+
+
+# 生成数学表达式和答案
+def generate_math_expression():
+    """生成一个简单的数学表达式和答案"""
+    operations = {
+        "+": operator.add,
+        "-": operator.sub,
+        "*": operator.mul,
+        "/": operator.truediv,
+    }
+
+    # 选择运算符
+    op = random.choice(list(operations.keys()))
+
+    # 生成数字（除法时确保能整除）
+    if op == "/":
+        b = random.randint(1, 20)  # 避免除以0
+        a = b * random.randint(1, 20)  # 确保能整除
+    else:
+        a = random.randint(1, 100)
+        b = random.randint(1, 100)
+
+    # 计算结果
+    result = operations[op](a, b)
+
+    # 对于除法，确保结果是整数
+    if op == "/" and result != int(result):
+        result = round(result, 2)  # 保留两位小数
+
+    expression = f"{a} {op} {b}"
+    return expression, result
+
+
+# 保存用户验证状态
+def save_user_verification_status(user_verification):
+    """保存用户验证状态到文件"""
+    with open(USER_VERIFICATION_FILE, "w", encoding="utf-8") as f:
+        json.dump(user_verification, f, ensure_ascii=False, indent=4)
+
+
+# 加载用户验证状态
+def load_user_verification_status():
+    """从文件加载用户验证状态"""
+    if not os.path.exists(USER_VERIFICATION_FILE):
+        return {}
+
+    try:
+        with open(USER_VERIFICATION_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"加载用户验证状态失败: {e}")
+        return {}
+
+
+# 保存验证题目
+def save_verification_question(user_id, group_id, expression, answer):
+    """保存用户的验证题目和答案"""
+    questions = load_verification_questions()
+    key = f"{user_id}_{group_id}"
+
+    questions[key] = {
+        "expression": expression,
+        "answer": answer,
+        "timestamp": time.time(),
+    }
+
+    with open(VERIFICATION_QUESTIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(questions, f, ensure_ascii=False, indent=4)
+
+
+# 加载验证题目
+def load_verification_questions():
+    """从文件加载验证题目"""
+    if not os.path.exists(VERIFICATION_QUESTIONS_FILE):
+        return {}
+
+    try:
+        with open(VERIFICATION_QUESTIONS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"加载验证题目失败: {e}")
+        return {}
+
+
+# 获取用户验证题目和答案
+def get_user_verification_question(user_id, group_id):
+    """获取特定用户在特定群的验证题目和答案"""
+    questions = load_verification_questions()
+    key = f"{user_id}_{group_id}"
+
+    if key in questions:
+        return questions[key]["expression"], float(questions[key]["answer"])
+    return None, None
 
 
 # 处理元事件，用于启动时确保数据目录存在
@@ -79,7 +186,7 @@ async def handle_group_message(websocket, msg):
         authorized = user_id in owner_id
 
         # 处理开关命令
-        if raw_message == "GroupEntryVerification":
+        if raw_message == "gevf":
             await toggle_function_status(websocket, group_id, message_id, authorized)
             return
         # 检查功能是否开启
@@ -103,8 +210,84 @@ async def handle_private_message(websocket, msg):
     try:
         user_id = str(msg.get("user_id"))
         raw_message = str(msg.get("raw_message"))
-        # 私聊消息处理逻辑
-        pass
+
+        # 加载用户验证状态
+        user_verification = load_user_verification_status()
+
+        # 检查该用户是否需要验证
+        for key in list(user_verification.keys()):
+            if key.startswith(f"{user_id}_"):
+                user_group_key = key
+                group_id = user_group_key.split("_")[1]
+
+                # 如果用户正在等待验证
+                if user_verification[user_group_key]["status"] == "pending":
+                    expression, correct_answer = get_user_verification_question(
+                        user_id, group_id
+                    )
+
+                    if expression is None:
+                        continue
+
+                    # 尝试将用户输入转换为数字进行比较
+                    try:
+                        user_answer = float(raw_message.strip())
+
+                        # 判断答案是否正确
+                        if (
+                            expression is not None
+                            and correct_answer is not None
+                            and abs(user_answer - correct_answer) < 0.01
+                        ):  # 允许小误差
+                            # 回答正确，解除禁言
+                            await set_group_ban(websocket, group_id, user_id, 0)
+                            await send_private_msg(
+                                websocket,
+                                user_id,
+                                f"恭喜你通过了验证！你现在可以在群【{group_id}】中正常发言了。",
+                            )
+
+                            # 更新状态
+                            user_verification[user_group_key]["status"] = "verified"
+                            save_user_verification_status(user_verification)
+                        else:
+                            # 回答错误，减少尝试次数
+                            remaining_attempts = (
+                                user_verification[user_group_key]["remaining_attempts"]
+                                - 1
+                            )
+                            user_verification[user_group_key][
+                                "remaining_attempts"
+                            ] = remaining_attempts
+                            save_user_verification_status(user_verification)
+
+                            if remaining_attempts > 0:
+                                await send_private_msg(
+                                    websocket,
+                                    user_id,
+                                    f"回答错误！你还有{remaining_attempts}次机会。请重新计算：{expression}",
+                                )
+                            else:
+                                # 尝试次数用完，踢出群聊
+                                await set_group_kick(websocket, group_id, user_id)
+                                await send_private_msg(
+                                    websocket,
+                                    user_id,
+                                    f"很抱歉，你已用完所有尝试机会，你将被踢出群【{group_id}】。",
+                                )
+
+                                # 更新状态
+                                user_verification[user_group_key]["status"] = "failed"
+                                save_user_verification_status(user_verification)
+                    except ValueError:
+                        # 用户输入的不是数字
+                        await send_private_msg(
+                            websocket,
+                            user_id,
+                            f"请输入一个数字作为答案。你的计算式是：{expression}",
+                        )
+
+                    return  # 处理完一个验证请求后返回
     except Exception as e:
         logging.error(f"处理GroupEntryVerification私聊消息失败: {e}")
         await send_private_msg(
@@ -124,7 +307,15 @@ async def handle_group_notice(websocket, msg):
         user_id = str(msg.get("user_id"))
         group_id = str(msg.get("group_id"))
         notice_type = str(msg.get("notice_type"))
-        operator_id = str(msg.get("operator_id", ""))
+        sub_type = str(msg.get("sub_type", ""))
+
+        # 检查功能是否开启
+        if not load_function_status(group_id):
+            return
+
+        # 检测新成员入群事件
+        if notice_type == "group_increase":
+            await process_new_member(websocket, user_id, group_id)
 
     except Exception as e:
         logging.error(f"处理GroupEntryVerification群通知失败: {e}")
@@ -133,6 +324,69 @@ async def handle_group_notice(websocket, msg):
             group_id,
             "处理GroupEntryVerification群通知失败，错误信息：" + str(e),
         )
+        return
+
+
+# 处理新成员入群
+async def process_new_member(websocket, user_id, group_id):
+    """处理新成员入群验证"""
+    try:
+        # 禁言新成员30天
+        await set_group_ban(websocket, group_id, user_id, BAN_DURATION)
+
+        # 生成数学表达式和答案
+        expression, answer = generate_math_expression()
+
+        # 保存验证题目和答案
+        save_verification_question(user_id, group_id, expression, answer)
+
+        # 发送私聊验证消息
+        await send_private_msg(
+            websocket,
+            user_id,
+            f"你在群【{group_id}】需要进行人机验证，请回复下面计算结果，你将有{MAX_ATTEMPTS}次机会，如果全部错误将会被踢出群聊\n你的计算式是：{expression}",
+        )
+
+        # 保存用户验证状态
+        user_verification = load_user_verification_status()
+        user_verification[f"{user_id}_{group_id}"] = {
+            "status": "pending",
+            "remaining_attempts": MAX_ATTEMPTS,
+            "timestamp": time.time(),
+        }
+        save_user_verification_status(user_verification)
+
+        logging.info(f"已向用户 {user_id} 发送群 {group_id} 的入群验证")
+
+    except Exception as e:
+        logging.error(f"处理新成员入群验证失败: {e}")
+        await send_group_msg(
+            websocket,
+            group_id,
+            f"处理新成员 {user_id} 入群验证失败，错误信息：{str(e)}",
+        )
+
+
+# 请求事件处理函数
+async def handle_request_event(websocket, msg):
+    """处理请求事件"""
+    try:
+        request_type = msg.get("request_type")
+
+        # 处理加群请求
+        if request_type == "group":
+            group_id = str(msg.get("group_id"))
+            user_id = str(msg.get("user_id"))
+
+            # 如果是加群请求，同意加群，后续在入群通知中进行验证
+            if msg.get("sub_type") == "add":
+                # 此处仅记录，不进行处理，等待用户入群后再处理
+                logging.info(
+                    f"收到用户 {user_id} 加入群 {group_id} 的请求，将在入群后进行验证"
+                )
+
+    except Exception as e:
+        logging.error(f"处理GroupEntryVerification请求事件失败: {e}")
         return
 
 
@@ -181,6 +435,10 @@ async def handle_events(websocket, msg):
         # 处理通知事件
         elif post_type == "notice":
             await handle_group_notice(websocket, msg)
+
+        # 处理请求事件
+        elif post_type == "request":
+            await handle_request_event(websocket, msg)
 
     except Exception as e:
         error_type = {
