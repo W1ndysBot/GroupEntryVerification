@@ -49,7 +49,23 @@ def save_function_status(group_id, status):
 
 # 生成数学表达式和答案
 def generate_math_expression():
-    """生成一个简单的数学表达式和答案"""
+    """生成一个丰富多样且易于计算的数学表达式和答案"""
+    # 选择表达式类型：1=简单二元运算，2=三元运算，3=带括号运算
+    expr_type = random.randint(1, 3)
+
+    if expr_type == 1:
+        # 简单二元运算 (a op b)
+        return generate_simple_expression()
+    elif expr_type == 2:
+        # 三元运算 (a op b op c)
+        return generate_three_term_expression()
+    else:
+        # 带括号运算 ((a op b) op c 或 a op (b op c))
+        return generate_parentheses_expression()
+
+
+def generate_simple_expression():
+    """生成简单的二元表达式"""
     operations = {
         "+": operator.add,
         "-": operator.sub,
@@ -60,13 +76,19 @@ def generate_math_expression():
     # 选择运算符
     op = random.choice(list(operations.keys()))
 
-    # 生成数字（除法时确保能整除）
-    if op == "/":
-        b = random.randint(1, 20)  # 避免除以0
-        a = b * random.randint(1, 20)  # 确保能整除
-    else:
-        a = random.randint(1, 100)
-        b = random.randint(1, 100)
+    # 生成数字（简单且容易计算）
+    if op == "+":
+        a = random.randint(1, 50)
+        b = random.randint(1, 50)
+    elif op == "-":
+        a = random.randint(10, 100)
+        b = random.randint(1, a)  # 确保结果为正数
+    elif op == "*":
+        a = random.randint(2, 12)
+        b = random.randint(2, 12)  # 乘法表范围内
+    elif op == "/":
+        b = random.randint(2, 10)  # 避免除以0和1
+        a = b * random.randint(1, 10)  # 确保能整除
 
     # 计算结果
     result = operations[op](a, b)
@@ -76,6 +98,113 @@ def generate_math_expression():
         result = round(result, 2)  # 保留两位小数
 
     expression = f"{a} {op} {b}"
+    return expression, result
+
+
+def generate_three_term_expression():
+    """生成三元表达式 (a op1 b op2 c)"""
+    # 选择两个运算符，确保易于计算
+    ops = ["+", "-", "*"]
+    weights = [0.4, 0.3, 0.3]  # 加法更常见，使计算简单
+    op1 = random.choices(ops, weights=weights)[0]
+    op2 = random.choices(ops, weights=weights)[0]
+
+    # 生成数字（确保结果易于计算）
+    if op1 in ["+", "-"]:
+        a = random.randint(1, 20)
+    else:
+        a = random.randint(2, 6)
+
+    if op2 in ["+", "-"]:
+        c = random.randint(1, 20)
+    else:
+        c = random.randint(2, 6)
+
+    if op1 == "*" and op2 == "*":
+        # 避免两个乘法导致结果过大
+        b = random.randint(2, 4)
+    else:
+        b = random.randint(1, 10)
+
+    # 构建表达式
+    expression = f"{a} {op1} {b} {op2} {c}"
+
+    # 计算结果（从左到右）
+    if op1 == "+":
+        temp = a + b
+    elif op1 == "-":
+        temp = a - b
+    else:
+        temp = a * b
+
+    if op2 == "+":
+        result = temp + c
+    elif op2 == "-":
+        result = temp - c
+    else:
+        result = temp * c
+
+    return expression, result
+
+
+def generate_parentheses_expression():
+    """生成带括号的表达式"""
+    # 选择括号位置：1=左侧括号 (a op1 b) op2 c, 2=右侧括号 a op1 (b op2 c)
+    bracket_pos = random.randint(1, 2)
+
+    # 选择操作符
+    simple_ops = ["+", "-"]
+    all_ops = ["+", "-", "*"]
+
+    # 确保括号内的运算简单，括号外优先选择加减
+    if bracket_pos == 1:
+        op1 = random.choice(simple_ops)
+        op2 = random.choice(all_ops)
+    else:
+        op1 = random.choice(all_ops)
+        op2 = random.choice(simple_ops)
+
+    # 生成易于计算的数字
+    a = random.randint(2, 20)
+    b = random.randint(2, 20)
+    c = random.randint(2, 10)
+
+    # 构建表达式
+    if bracket_pos == 1:
+        expression = f"({a} {op1} {b}) {op2} {c}"
+
+        # 计算结果
+        if op1 == "+":
+            temp = a + b
+        elif op1 == "-":
+            temp = a - b
+        else:
+            temp = a * b
+
+        if op2 == "+":
+            result = temp + c
+        elif op2 == "-":
+            result = temp - c
+        else:
+            result = temp * c
+    else:
+        expression = f"{a} {op1} ({b} {op2} {c})"
+
+        # 计算结果
+        if op2 == "+":
+            temp = b + c
+        elif op2 == "-":
+            temp = b - c
+        else:
+            temp = b * c
+
+        if op1 == "+":
+            result = a + temp
+        elif op1 == "-":
+            result = a - temp
+        else:
+            result = a * temp
+
     return expression, result
 
 
