@@ -3,11 +3,11 @@
 import logging
 import os
 import sys
-import re
 import json
 import random
 import time
 import operator
+import asyncio
 
 # 添加项目根目录到sys.path
 sys.path.append(
@@ -35,6 +35,10 @@ VERIFICATION_QUESTIONS_FILE = os.path.join(DATA_DIR, "verification_questions.jso
 MAX_ATTEMPTS = 3
 # 禁言时间（30天，单位：秒）
 BAN_DURATION = 30 * 24 * 60 * 60
+
+# 管理员审核命令
+ADMIN_APPROVE_CMD = "approve"  # 批准命令
+ADMIN_REJECT_CMD = "reject"  # 拒绝命令
 
 
 # 查看功能开关状态
@@ -340,6 +344,18 @@ async def handle_private_message(websocket, msg):
         user_id = str(msg.get("user_id"))
         raw_message = str(msg.get("raw_message"))
 
+        # 检查是否是管理员命令
+        if user_id in owner_id:
+            # 处理管理员批准命令
+            if raw_message.startswith(ADMIN_APPROVE_CMD):
+                await handle_admin_approve(websocket, user_id, raw_message)
+                return
+
+            # 处理管理员拒绝命令
+            elif raw_message.startswith(ADMIN_REJECT_CMD):
+                await handle_admin_reject(websocket, user_id, raw_message)
+                return
+
         # 加载用户验证状态
         user_verification = load_user_verification_status()
 
@@ -487,6 +503,28 @@ async def process_new_member(websocket, user_id, group_id):
 
         logging.info(f"已向用户 {user_id} 发送群 {group_id} 的入群验证")
 
+        # 通知管理员有新成员加入
+        for admin_id in owner_id:
+            await send_private_msg(
+                websocket,
+                admin_id,
+                f"新成员 {user_id} 加入了群 {group_id}，等待验证。\n"
+                f"您可以发送以下命令手动处理：\n"
+                f"- {ADMIN_APPROVE_CMD} {group_id} {user_id} (批准)\n"
+                f"- {ADMIN_REJECT_CMD} {group_id} {user_id} (拒绝)",
+            )
+            await asyncio.sleep(0.5)
+            await send_private_msg(
+                websocket,
+                admin_id,
+                f"{ADMIN_APPROVE_CMD} {group_id} {user_id}",
+            )
+            await asyncio.sleep(0.5)
+            await send_private_msg(
+                websocket,
+                admin_id,
+                f"{ADMIN_REJECT_CMD} {group_id} {user_id}",
+            )
     except Exception as e:
         logging.error(f"处理新成员入群验证失败: {e}")
         await send_group_msg(
@@ -535,6 +573,130 @@ async def handle_response(websocket, msg):
             f"处理GroupEntryVerification回调事件失败，错误信息：{str(e)}",
         )
         return
+
+
+# 添加管理员批准命令处理函数
+async def handle_admin_approve(websocket, admin_id, command):
+    """处理管理员批准命令"""
+    try:
+        # 确保是验证功能的命令
+        if not command.startswith(ADMIN_APPROVE_CMD):
+            return
+
+        # 解析命令参数
+        parts = command.strip().split()
+        if len(parts) != 3:
+            await send_private_msg(
+                websocket,
+                admin_id,
+                f"验证功能命令格式错误，正确格式：{ADMIN_APPROVE_CMD} 群号 QQ号",
+            )
+            return
+
+        _, group_id, user_id = parts
+
+        # 加载用户验证状态
+        user_verification = load_user_verification_status()
+        user_group_key = f"{user_id}_{group_id}"
+
+        # 检查用户是否在等待验证
+        if (
+            user_group_key not in user_verification
+            or user_verification[user_group_key]["status"] != "pending"
+        ):
+            await send_private_msg(
+                websocket, admin_id, f"用户 {user_id} 不在群 {group_id} 的验证队列中"
+            )
+            return
+
+        # 解除用户禁言
+        await set_group_ban(websocket, group_id, user_id, 0)
+
+        # 通知用户已被批准
+        await send_private_msg(
+            websocket,
+            user_id,
+            f"管理员手动批准了你在群【{group_id}】的验证，无需再验证",
+        )
+
+        # 更新用户状态
+        user_verification[user_group_key]["status"] = "verified"
+        save_user_verification_status(user_verification)
+
+        # 通知管理员操作成功
+        await send_private_msg(
+            websocket, admin_id, f"已批准用户 {user_id} 在群 {group_id} 的验证"
+        )
+
+        logging.info(f"管理员 {admin_id} 批准了用户 {user_id} 在群 {group_id} 的验证")
+
+    except Exception as e:
+        logging.error(f"处理管理员批准命令失败: {e}")
+        await send_private_msg(
+            websocket, admin_id, f"处理批准命令失败，错误信息：{str(e)}"
+        )
+
+
+# 添加管理员拒绝命令处理函数
+async def handle_admin_reject(websocket, admin_id, command):
+    """处理管理员拒绝命令"""
+    try:
+        # 确保是验证功能的命令
+        if not command.startswith(ADMIN_REJECT_CMD):
+            return
+
+        # 解析命令参数
+        parts = command.strip().split()
+        if len(parts) != 3:
+            await send_private_msg(
+                websocket,
+                admin_id,
+                f"验证功能命令格式错误，正确格式：{ADMIN_REJECT_CMD} 群号 QQ号",
+            )
+            return
+
+        _, group_id, user_id = parts
+
+        # 加载用户验证状态
+        user_verification = load_user_verification_status()
+        user_group_key = f"{user_id}_{group_id}"
+
+        # 检查用户是否在等待验证
+        if (
+            user_group_key not in user_verification
+            or user_verification[user_group_key]["status"] != "pending"
+        ):
+            await send_private_msg(
+                websocket, admin_id, f"用户 {user_id} 不在群 {group_id} 的验证队列中"
+            )
+            return
+
+        # 通知用户已被拒绝
+        await send_private_msg(
+            websocket, user_id, f"管理员拒绝了你的验证，你将会被踢出群【{group_id}】"
+        )
+
+        # 踢出用户
+        await set_group_kick(websocket, group_id, user_id)
+
+        # 更新用户状态
+        user_verification[user_group_key]["status"] = "rejected"
+        save_user_verification_status(user_verification)
+
+        # 通知管理员操作成功
+        await send_private_msg(
+            websocket,
+            admin_id,
+            f"已拒绝用户 {user_id} 在群 {group_id} 的验证并将其踢出",
+        )
+
+        logging.info(f"管理员 {admin_id} 拒绝了用户 {user_id} 在群 {group_id} 的验证")
+
+    except Exception as e:
+        logging.error(f"处理管理员拒绝命令失败: {e}")
+        await send_private_msg(
+            websocket, admin_id, f"处理拒绝命令失败，错误信息：{str(e)}"
+        )
 
 
 # 统一事件处理入口
