@@ -37,8 +37,8 @@ MAX_ATTEMPTS = 3
 BAN_DURATION = 30 * 24 * 60 * 60
 
 # 管理员审核命令
-ADMIN_APPROVE_CMD = "approve"  # 批准命令
-ADMIN_REJECT_CMD = "reject"  # 拒绝命令
+ADMIN_APPROVE_CMD = "批准"  # 批准命令
+ADMIN_REJECT_CMD = "拒绝"  # 拒绝命令
 
 
 # 查看功能开关状态
@@ -53,19 +53,8 @@ def save_function_status(group_id, status):
 
 # 生成数学表达式和答案
 def generate_math_expression():
-    """生成一个丰富多样且易于计算的数学表达式和答案"""
-    # 选择表达式类型：1=简单二元运算，2=三元运算，3=带括号运算
-    expr_type = random.randint(1, 3)
-
-    if expr_type == 1:
-        # 简单二元运算 (a op b)
-        return generate_simple_expression()
-    elif expr_type == 2:
-        # 三元运算 (a op b op c)
-        return generate_three_term_expression()
-    else:
-        # 带括号运算 ((a op b) op c 或 a op (b op c))
-        return generate_parentheses_expression()
+    """生成一个简单的加减乘除二元数学表达式和答案"""
+    return generate_simple_expression()
 
 
 def generate_simple_expression():
@@ -102,128 +91,6 @@ def generate_simple_expression():
         result = round(result, 2)  # 保留两位小数
 
     expression = f"{a} {op} {b}"
-    return expression, result
-
-
-def generate_three_term_expression():
-    """生成三元表达式，遵循运算优先级规则"""
-    # 选择两个运算符，确保易于计算
-    ops = ["+", "-", "*"]
-    weights = [0.4, 0.3, 0.3]  # 加法更常见，使计算简单
-    op1 = random.choices(ops, weights=weights)[0]
-    op2 = random.choices(ops, weights=weights)[0]
-
-    # 生成数字（确保结果易于计算）
-    if op1 in ["+", "-"]:
-        a = random.randint(1, 20)
-    else:
-        a = random.randint(2, 6)
-
-    if op2 in ["+", "-"]:
-        c = random.randint(1, 20)
-    else:
-        c = random.randint(2, 6)
-
-    if op1 == "*" and op2 == "*":
-        # 避免两个乘法导致结果过大
-        b = random.randint(2, 4)
-    else:
-        b = random.randint(1, 10)
-
-    # 根据运算符优先级构建表达式和计算结果
-    if op1 == "*" or op2 == "*":
-        # 如果有乘法，需要先计算乘法
-        if op1 == "*":
-            # a * b op2 c
-            temp = a * b
-            expression = f"({a} {op1} {b}) {op2} {c}"
-            if op2 == "+":
-                result = temp + c
-            else:  # op2 == "-"
-                result = temp - c
-        else:  # op2 == "*"
-            # a op1 (b * c)
-            temp = b * c
-            expression = f"{a} {op1} ({b} {op2} {c})"
-            if op1 == "+":
-                result = a + temp
-            else:  # op1 == "-"
-                result = a - temp
-    else:
-        # 如果都是加减，从左到右计算
-        if op1 == "+":
-            temp = a + b
-        else:  # op1 == "-"
-            temp = a - b
-
-        if op2 == "+":
-            result = temp + c
-        else:  # op2 == "-"
-            result = temp - c
-
-        expression = f"{a} {op1} {b} {op2} {c}"
-
-    return expression, result
-
-
-def generate_parentheses_expression():
-    """生成带括号的表达式"""
-    # 选择括号位置：1=左侧括号 (a op1 b) op2 c, 2=右侧括号 a op1 (b op2 c)
-    bracket_pos = random.randint(1, 2)
-
-    # 选择操作符
-    simple_ops = ["+", "-"]
-    all_ops = ["+", "-", "*"]
-
-    # 确保括号内的运算简单，括号外优先选择加减
-    if bracket_pos == 1:
-        op1 = random.choice(simple_ops)
-        op2 = random.choice(all_ops)
-    else:
-        op1 = random.choice(all_ops)
-        op2 = random.choice(simple_ops)
-
-    # 生成易于计算的数字
-    a = random.randint(2, 20)
-    b = random.randint(2, 20)
-    c = random.randint(2, 10)
-
-    # 构建表达式
-    if bracket_pos == 1:
-        expression = f"({a} {op1} {b}) {op2} {c}"
-
-        # 计算结果
-        if op1 == "+":
-            temp = a + b
-        elif op1 == "-":
-            temp = a - b
-        else:
-            temp = a * b
-
-        if op2 == "+":
-            result = temp + c
-        elif op2 == "-":
-            result = temp - c
-        else:
-            result = temp * c
-    else:
-        expression = f"{a} {op1} ({b} {op2} {c})"
-
-        # 计算结果
-        if op2 == "+":
-            temp = b + c
-        elif op2 == "-":
-            temp = b - c
-        else:
-            temp = b * c
-
-        if op1 == "+":
-            result = a + temp
-        elif op1 == "-":
-            result = a - temp
-        else:
-            result = a * temp
-
     return expression, result
 
 
@@ -523,23 +390,25 @@ async def process_new_member(websocket, user_id, group_id):
 
         logging.info(f"已向用户 {user_id} 发送群 {group_id} 的入群验证")
 
-        # 通知管理员有新成员加入
+        # 通知管理员有新成员加入，并私发计算式和答案
         for admin_id in owner_id:
             await send_private_msg(
                 websocket,
                 admin_id,
                 f"新成员 {user_id} 加入了群 {group_id}，等待验证。\n"
+                f"计算式：{expression}\n"
+                f"答案：{answer}\n"
                 f"您可以发送以下命令手动处理：\n"
-                f"- {ADMIN_APPROVE_CMD} {group_id} {user_id} (批准)\n"
-                f"- {ADMIN_REJECT_CMD} {group_id} {user_id} (拒绝)",
+                f"{ADMIN_APPROVE_CMD} {group_id} {user_id} (批准)\n"
+                f"{ADMIN_REJECT_CMD} {group_id} {user_id} (拒绝)",
             )
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1)
             await send_private_msg(
                 websocket,
                 admin_id,
                 f"{ADMIN_APPROVE_CMD} {group_id} {user_id}",
             )
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1)
             await send_private_msg(
                 websocket,
                 admin_id,
