@@ -401,10 +401,11 @@ async def handle_private_message(websocket, msg):
                         ):  # 允许小误差
                             # 回答正确，解除禁言
                             await set_group_ban(websocket, group_id, user_id, 0)
-                            await send_private_msg(
+                            # 在群里通知验证成功
+                            await send_group_msg(
                                 websocket,
-                                user_id,
-                                f"恭喜你通过了验证！你现在可以在群【{group_id}】中正常发言了。",
+                                group_id,
+                                f"[CQ:at,qq={user_id}] 恭喜你通过了验证！现在可以正常发言了。",
                             )
 
                             # 更新状态
@@ -422,39 +423,43 @@ async def handle_private_message(websocket, msg):
                             save_user_verification_status(user_verification)
 
                             if remaining_attempts > 0:
-                                await send_private_msg(
+                                # 在群里通知剩余次数
+                                await send_group_msg(
                                     websocket,
-                                    user_id,
-                                    f"回答错误！你还有{remaining_attempts}次机会。请重新计算：{expression}",
+                                    group_id,
+                                    f"[CQ:at,qq={user_id}] 回答错误！你还有{remaining_attempts}次机会。请重新计算：{expression}",
                                 )
                             else:
                                 # 尝试次数用完，踢出群聊
                                 await set_group_kick(websocket, group_id, user_id)
-                                await send_private_msg(
+                                # 在群里通知踢出原因
+                                await send_group_msg(
                                     websocket,
-                                    user_id,
-                                    f"很抱歉，你已用完所有尝试机会，你将被踢出群【{group_id}】。",
+                                    group_id,
+                                    f"用户 {user_id} 验证失败，已被踢出群聊。",
                                 )
 
                                 # 更新状态
                                 user_verification[user_group_key]["status"] = "failed"
                                 save_user_verification_status(user_verification)
                     except ValueError:
-                        # 用户输入的不是数字
-                        await send_private_msg(
+                        # 用户输入的不是数字，在群里提醒
+                        await send_group_msg(
                             websocket,
-                            user_id,
-                            f"请输入一个数字作为答案。你的计算式是：{expression}",
+                            group_id,
+                            f"[CQ:at,qq={user_id}] 请私聊我一个数字作为答案。你的计算式是：{expression}",
                         )
 
                     return  # 处理完一个验证请求后返回
     except Exception as e:
         logging.error(f"处理GroupEntryVerification私聊消息失败: {e}")
-        await send_private_msg(
-            websocket,
-            msg.get("user_id"),
-            "处理GroupEntryVerification私聊消息失败，错误信息：" + str(e),
-        )
+        # 错误信息也转移到群里
+        if "group_id" in locals():
+            await send_group_msg(
+                websocket,
+                group_id,
+                f"处理用户 {user_id} 的验证消息失败，错误信息：{str(e)}",
+            )
         return
 
 
@@ -500,11 +505,11 @@ async def process_new_member(websocket, user_id, group_id):
         # 保存验证题目和答案
         save_verification_question(user_id, group_id, expression, answer)
 
-        # 发送私聊验证消息
-        await send_private_msg(
+        # 在群里发送验证消息
+        await send_group_msg(
             websocket,
-            user_id,
-            f"你在群【{group_id}】需要进行人机验证，请回复下面计算结果，你将有{MAX_ATTEMPTS}次机会，如果全部错误将会被踢出群聊\n你的计算式是：{expression}",
+            group_id,
+            f"[CQ:at,qq={user_id}] 欢迎加入本群！请私聊我回复下面计算结果完成验证，你将有{MAX_ATTEMPTS}次机会，如果全部错误将会被踢出群聊\n你的计算式是：{expression}",
         )
 
         # 保存用户验证状态
@@ -627,11 +632,11 @@ async def handle_admin_approve(websocket, admin_id, command):
         # 解除用户禁言
         await set_group_ban(websocket, group_id, user_id, 0)
 
-        # 通知用户已被批准
-        await send_private_msg(
+        # 在群里通知用户已被批准
+        await send_group_msg(
             websocket,
-            user_id,
-            f"管理员手动批准了你在群【{group_id}】的验证，无需再验证",
+            group_id,
+            f"[CQ:at,qq={user_id}] 管理员已批准你的验证，现在可以正常发言了。",
         )
 
         # 更新用户状态
@@ -686,9 +691,11 @@ async def handle_admin_reject(websocket, admin_id, command):
             )
             return
 
-        # 通知用户已被拒绝
-        await send_private_msg(
-            websocket, user_id, f"管理员拒绝了你的验证，你将会被踢出群【{group_id}】"
+        # 在群里通知用户已被拒绝
+        await send_group_msg(
+            websocket,
+            group_id,
+            f"[CQ:at,qq={user_id}] 管理员拒绝了你的验证，你将被踢出群聊。",
         )
 
         # 踢出用户
