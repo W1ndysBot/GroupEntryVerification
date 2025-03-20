@@ -106,7 +106,7 @@ def generate_simple_expression():
 
 
 def generate_three_term_expression():
-    """生成三元表达式 (a op1 b op2 c)"""
+    """生成三元表达式，遵循运算优先级规则"""
     # 选择两个运算符，确保易于计算
     ops = ["+", "-", "*"]
     weights = [0.4, 0.3, 0.3]  # 加法更常见，使计算简单
@@ -130,23 +130,38 @@ def generate_three_term_expression():
     else:
         b = random.randint(1, 10)
 
-    # 构建表达式
-    expression = f"{a} {op1} {b} {op2} {c}"
-
-    # 计算结果（从左到右）
-    if op1 == "+":
-        temp = a + b
-    elif op1 == "-":
-        temp = a - b
+    # 根据运算符优先级构建表达式和计算结果
+    if op1 == "*" or op2 == "*":
+        # 如果有乘法，需要先计算乘法
+        if op1 == "*":
+            # a * b op2 c
+            temp = a * b
+            expression = f"({a} {op1} {b}) {op2} {c}"
+            if op2 == "+":
+                result = temp + c
+            else:  # op2 == "-"
+                result = temp - c
+        else:  # op2 == "*"
+            # a op1 (b * c)
+            temp = b * c
+            expression = f"{a} {op1} ({b} {op2} {c})"
+            if op1 == "+":
+                result = a + temp
+            else:  # op1 == "-"
+                result = a - temp
     else:
-        temp = a * b
+        # 如果都是加减，从左到右计算
+        if op1 == "+":
+            temp = a + b
+        else:  # op1 == "-"
+            temp = a - b
 
-    if op2 == "+":
-        result = temp + c
-    elif op2 == "-":
-        result = temp - c
-    else:
-        result = temp * c
+        if op2 == "+":
+            result = temp + c
+        else:  # op2 == "-"
+            result = temp - c
+
+        expression = f"{a} {op1} {b} {op2} {c}"
 
     return expression, result
 
