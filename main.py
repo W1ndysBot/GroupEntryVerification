@@ -215,7 +215,7 @@ async def handle_group_message(websocket, msg):
         authorized = user_id in owner_id
 
         # 处理开关命令
-        if raw_message == "gevf":
+        if raw_message == "gev":
             await toggle_function_status(websocket, group_id, message_id, authorized)
             return
         # 检查功能是否开启
