@@ -26,11 +26,10 @@ DATA_DIR = os.path.join(
     "GroupEntryVerification",
 )
 
-
-# 用户验证文件路径
-def get_verification_file_path(group_id):
-    return os.path.join(DATA_DIR, str(group_id), "verification_data.json")
-
+# 用户验证状态文件
+USER_VERIFICATION_FILE = os.path.join(DATA_DIR, "user_verification.json")
+# 验证题目文件
+VERIFICATION_QUESTIONS_FILE = os.path.join(DATA_DIR, "verification_questions.json")
 
 # 最大尝试次数
 MAX_ATTEMPTS = 3
@@ -95,39 +94,65 @@ def generate_simple_expression():
     return expression, result
 
 
-# 保存用户验证数据
-def save_verification_data(group_id, data):
-    """保存用户验证数据到文件"""
-    os.makedirs(os.path.join(DATA_DIR, str(group_id)), exist_ok=True)
-    with open(get_verification_file_path(group_id), "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+# 保存用户验证状态
+def save_user_verification_status(user_verification):
+    """保存用户验证状态到文件"""
+    with open(USER_VERIFICATION_FILE, "w", encoding="utf-8") as f:
+        json.dump(user_verification, f, ensure_ascii=False, indent=4)
 
 
-# 加载用户验证数据
-def load_verification_data(group_id):
-    """从文件加载用户验证数据"""
-    file_path = get_verification_file_path(group_id)
-    if not os.path.exists(file_path):
+# 加载用户验证状态
+def load_user_verification_status():
+    """从文件加载用户验证状态"""
+    if not os.path.exists(USER_VERIFICATION_FILE):
         return {}
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(USER_VERIFICATION_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        logging.error(f"加载用户验证数据失败: {e}")
+        logging.error(f"加载用户验证状态失败: {e}")
+        return {}
+
+
+# 保存验证题目
+def save_verification_question(user_id, group_id, expression, answer):
+    """保存用户的验证题目和答案"""
+    questions = load_verification_questions()
+    key = f"{user_id}_{group_id}"
+
+    questions[key] = {
+        "expression": expression,
+        "answer": answer,
+        "timestamp": time.time(),
+    }
+
+    with open(VERIFICATION_QUESTIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(questions, f, ensure_ascii=False, indent=4)
+
+
+# 加载验证题目
+def load_verification_questions():
+    """从文件加载验证题目"""
+    if not os.path.exists(VERIFICATION_QUESTIONS_FILE):
+        return {}
+
+    try:
+        with open(VERIFICATION_QUESTIONS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"加载验证题目失败: {e}")
         return {}
 
 
 # 获取用户验证题目和答案
-def get_user_verification_question(group_id, user_id):
+def get_user_verification_question(user_id, group_id):
     """获取特定用户在特定群的验证题目和答案"""
-    verification_data = load_verification_data(group_id)
-    key = str(user_id)
+    questions = load_verification_questions()
+    key = f"{user_id}_{group_id}"
 
-    if key in verification_data:
-        return verification_data[key]["expression"], float(
-            verification_data[key]["answer"]
-        )
+    if key in questions:
+        return questions[key]["expression"], float(questions[key]["answer"])
     return None, None
 
 
@@ -213,19 +238,19 @@ async def handle_private_message(websocket, msg):
                 await handle_admin_reject(websocket, user_id, raw_message)
                 return
 
-        # 加载用户验证数据
-        verification_data = load_verification_data(user_id)
+        # 加载用户验证状态
+        user_verification = load_user_verification_status()
 
         # 检查该用户是否需要验证
-        for key in list(verification_data.keys()):
+        for key in list(user_verification.keys()):
             if key.startswith(f"{user_id}_"):
                 user_group_key = key
                 group_id = user_group_key.split("_")[1]
 
                 # 如果用户正在等待验证
-                if verification_data[user_group_key]["status"] == "pending":
+                if user_verification[user_group_key]["status"] == "pending":
                     expression, correct_answer = get_user_verification_question(
-                        group_id, user_id
+                        user_id, group_id
                     )
 
                     if expression is None:
@@ -251,18 +276,18 @@ async def handle_private_message(websocket, msg):
                             )
 
                             # 更新状态
-                            verification_data[user_group_key]["status"] = "verified"
-                            save_verification_data(group_id, verification_data)
+                            user_verification[user_group_key]["status"] = "verified"
+                            save_user_verification_status(user_verification)
                         else:
                             # 回答错误，减少尝试次数
                             remaining_attempts = (
-                                verification_data[user_group_key]["remaining_attempts"]
+                                user_verification[user_group_key]["remaining_attempts"]
                                 - 1
                             )
-                            verification_data[user_group_key][
+                            user_verification[user_group_key][
                                 "remaining_attempts"
                             ] = remaining_attempts
-                            save_verification_data(group_id, verification_data)
+                            save_user_verification_status(user_verification)
 
                             if remaining_attempts > 0:
                                 # 在群里通知剩余次数
@@ -282,8 +307,8 @@ async def handle_private_message(websocket, msg):
                                 )
 
                                 # 更新状态
-                                verification_data[user_group_key]["status"] = "failed"
-                                save_verification_data(group_id, verification_data)
+                                user_verification[user_group_key]["status"] = "failed"
+                                save_user_verification_status(user_verification)
                     except ValueError:
                         # 用户输入的不是数字，在群里提醒
                         await send_group_msg(
@@ -344,18 +369,8 @@ async def process_new_member(websocket, user_id, group_id):
         # 生成数学表达式和答案
         expression, answer = generate_math_expression()
 
-        # 加载现有验证数据
-        verification_data = load_verification_data(group_id)
-
         # 保存验证题目和答案
-        verification_data[str(user_id)] = {
-            "expression": expression,
-            "answer": answer,
-            "timestamp": time.time(),
-            "status": "pending",
-            "remaining_attempts": MAX_ATTEMPTS,
-        }
-        save_verification_data(group_id, verification_data)
+        save_verification_question(user_id, group_id, expression, answer)
 
         # 在群里发送验证消息
         await send_group_msg(
@@ -363,6 +378,15 @@ async def process_new_member(websocket, user_id, group_id):
             group_id,
             f"[CQ:at,qq={user_id}] 欢迎加入本群！请私聊我回复下面计算结果完成验证，你将有{MAX_ATTEMPTS}次机会，如果全部错误将会被踢出群聊\n你的计算式是：{expression}",
         )
+
+        # 保存用户验证状态
+        user_verification = load_user_verification_status()
+        user_verification[f"{user_id}_{group_id}"] = {
+            "status": "pending",
+            "remaining_attempts": MAX_ATTEMPTS,
+            "timestamp": time.time(),
+        }
+        save_user_verification_status(user_verification)
 
         logging.info(f"已向用户 {user_id} 发送群 {group_id} 的入群验证")
 
@@ -440,7 +464,7 @@ async def handle_response(websocket, msg):
         return
 
 
-# 处理管理员批准命令
+# 添加管理员批准命令处理函数
 async def handle_admin_approve(websocket, admin_id, command):
     """处理管理员批准命令"""
     try:
@@ -460,13 +484,14 @@ async def handle_admin_approve(websocket, admin_id, command):
 
         _, group_id, user_id = parts
 
-        # 加载用户验证数据
-        verification_data = load_verification_data(group_id)
+        # 加载用户验证状态
+        user_verification = load_user_verification_status()
+        user_group_key = f"{user_id}_{group_id}"
 
         # 检查用户是否在等待验证
         if (
-            str(user_id) not in verification_data
-            or verification_data[str(user_id)]["status"] != "pending"
+            user_group_key not in user_verification
+            or user_verification[user_group_key]["status"] != "pending"
         ):
             await send_private_msg(
                 websocket, admin_id, f"用户 {user_id} 不在群 {group_id} 的验证队列中"
@@ -484,8 +509,8 @@ async def handle_admin_approve(websocket, admin_id, command):
         )
 
         # 更新用户状态
-        verification_data[str(user_id)]["status"] = "verified"
-        save_verification_data(group_id, verification_data)
+        user_verification[user_group_key]["status"] = "verified"
+        save_user_verification_status(user_verification)
 
         # 通知管理员操作成功
         await send_private_msg(
@@ -501,7 +526,7 @@ async def handle_admin_approve(websocket, admin_id, command):
         )
 
 
-# 处理管理员拒绝命令
+# 添加管理员拒绝命令处理函数
 async def handle_admin_reject(websocket, admin_id, command):
     """处理管理员拒绝命令"""
     try:
@@ -521,13 +546,14 @@ async def handle_admin_reject(websocket, admin_id, command):
 
         _, group_id, user_id = parts
 
-        # 加载用户验证数据
-        verification_data = load_verification_data(group_id)
+        # 加载用户验证状态
+        user_verification = load_user_verification_status()
+        user_group_key = f"{user_id}_{group_id}"
 
         # 检查用户是否在等待验证
         if (
-            str(user_id) not in verification_data
-            or verification_data[str(user_id)]["status"] != "pending"
+            user_group_key not in user_verification
+            or user_verification[user_group_key]["status"] != "pending"
         ):
             await send_private_msg(
                 websocket, admin_id, f"用户 {user_id} 不在群 {group_id} 的验证队列中"
@@ -545,8 +571,8 @@ async def handle_admin_reject(websocket, admin_id, command):
         await set_group_kick(websocket, group_id, user_id)
 
         # 更新用户状态
-        verification_data[str(user_id)]["status"] = "rejected"
-        save_verification_data(group_id, verification_data)
+        user_verification[user_group_key]["status"] = "rejected"
+        save_user_verification_status(user_verification)
 
         # 通知管理员操作成功
         await send_private_msg(
