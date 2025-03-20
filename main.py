@@ -384,7 +384,7 @@ async def process_new_member(websocket, user_id, group_id):
         user_verification[f"{user_id}_{group_id}"] = {
             "status": "pending",
             "remaining_attempts": MAX_ATTEMPTS,
-            "timestamp": time.time(),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
         }
         save_user_verification_status(user_verification)
 
