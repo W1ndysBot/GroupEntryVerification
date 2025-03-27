@@ -474,7 +474,7 @@ async def handle_admin_approve(websocket, admin_id, command):
 
         # 解析命令参数
         parts = command.strip().split()
-        if len(parts) != 3:
+        if len(parts) < 3:
             await send_private_msg(
                 websocket,
                 admin_id,
@@ -482,7 +482,8 @@ async def handle_admin_approve(websocket, admin_id, command):
             )
             return
 
-        _, group_id, user_id = parts
+        # 只取前三个部分，忽略后面可能的额外文本
+        _, group_id, user_id = parts[0:3]
 
         # 加载用户验证状态
         user_verification = load_user_verification_status()
@@ -536,7 +537,7 @@ async def handle_admin_reject(websocket, admin_id, command):
 
         # 解析命令参数
         parts = command.strip().split()
-        if len(parts) != 3:
+        if len(parts) < 3:
             await send_private_msg(
                 websocket,
                 admin_id,
@@ -544,7 +545,8 @@ async def handle_admin_reject(websocket, admin_id, command):
             )
             return
 
-        _, group_id, user_id = parts
+        # 只取前三个部分，忽略后面可能的额外文本
+        _, group_id, user_id = parts[0:3]
 
         # 加载用户验证状态
         user_verification = load_user_verification_status()
