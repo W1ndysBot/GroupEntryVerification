@@ -575,7 +575,7 @@ async def handle_admin_approve(websocket, admin_id, command):
         await send_group_msg(
             websocket,
             group_id,
-            f"[CQ:at,qq={user_id}] 管理员已批准你的验证，现在可以正常发言了。",
+            f"[CQ:at,qq={user_id}] 管理员手动通过了你的验证，现在可以正常发言了。",
         )
 
         # 更新用户状态
