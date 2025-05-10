@@ -31,15 +31,10 @@ USER_VERIFICATION_FILE = os.path.join(DATA_DIR, "user_verification.json")
 # 验证题目文件
 VERIFICATION_QUESTIONS_FILE = os.path.join(DATA_DIR, "verification_questions.json")
 
-# 待撤回消息存储文件
-VERIFICATION_ECHO_MESSAGES_FILE = os.path.join(
-    DATA_DIR, "verification_echo_messages.json"
-)
-
 # 最大尝试次数
 MAX_ATTEMPTS = 3
-# 禁言时间（30分钟，单位：秒）
-BAN_DURATION = 30 * 60
+# 禁言时间（30天，单位：秒）
+BAN_DURATION = 30 * 24 * 60 * 60
 
 # 管理员审核命令
 ADMIN_APPROVE_CMD = "批准"  # 批准命令
@@ -161,38 +156,6 @@ def get_user_verification_question(user_id, group_id):
     return None, None
 
 
-# 加载待撤回消息列表
-def load_echo_messages():
-    """从文件加载待撤回消息列表"""
-    if not os.path.exists(VERIFICATION_ECHO_MESSAGES_FILE):
-        return {}
-    try:
-        with open(VERIFICATION_ECHO_MESSAGES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        logging.error(f"加载待撤回消息列表失败: {e}")
-        return {}
-
-
-# 保存待撤回消息列表
-def save_echo_messages(echo_messages):
-    """保存待撤回消息列表到文件"""
-    with open(VERIFICATION_ECHO_MESSAGES_FILE, "w", encoding="utf-8") as f:
-        json.dump(echo_messages, f, ensure_ascii=False, indent=4)
-
-
-# 延时撤回消息的异步任务
-async def recall_message_after_delay(websocket, message_id, delay_seconds):
-    """在指定延迟后撤回消息"""
-    await asyncio.sleep(delay_seconds)
-    try:
-        logging.info(f"尝试在延迟 {delay_seconds}秒后撤回消息 {message_id}。")
-        await delete_msg(websocket, message_id)
-        logging.info(f"成功在延迟后撤回消息 {message_id}。")
-    except Exception as e:
-        logging.error(f"延迟后撤回消息 {message_id} 失败: {e}")
-
-
 # 处理元事件，用于启动时确保数据目录存在
 async def handle_meta_event(websocket, msg):
     """处理元事件"""
@@ -241,50 +204,8 @@ async def handle_group_message(websocket, msg):
         if raw_message == "gev":
             await toggle_function_status(websocket, group_id, message_id, authorized)
             return
-
         # 检查功能是否开启
         if load_function_status(group_id):
-            # 加载用户验证状态
-            user_verification = load_user_verification_status()
-            user_key = f"{user_id}_{group_id}"
-
-            if (
-                user_key in user_verification
-                and user_verification[user_key]["status"] == "pending"
-            ):
-                join_timestamp_str = user_verification[user_key].get("timestamp")
-                if join_timestamp_str:
-                    try:
-                        join_timestamp_epoch = time.mktime(
-                            time.strptime(join_timestamp_str, "%Y-%m-%d %H:%M:%S")
-                        )
-                        # 检查是否已过30分钟禁言期，但用户仍未验证并发了言
-                        if time.time() > join_timestamp_epoch + (30 * 60):  # 30分钟后
-                            await delete_msg(websocket, message_id)  # 撤回用户消息
-                            await set_group_ban(
-                                websocket, group_id, user_id, 30 * 60
-                            )  # 重新禁言30分钟
-
-                            expression, _ = get_user_verification_question(
-                                user_id, group_id
-                            )
-                            remaining_attempts = user_verification[user_key][
-                                "remaining_attempts"
-                            ]
-
-                            await send_group_msg(
-                                websocket,
-                                group_id,
-                                f"[CQ:at,qq={user_id}] 您在入群30分钟后仍未通过验证，本次发言已撤回并被再次禁言30分钟。请尽快私聊我答案完成验证。您的计算式是：{expression}，您还有{remaining_attempts}次机会。",
-                            )
-                            logging.info(
-                                f"用户 {user_id} 在群 {group_id} 中于30分钟后发言但未验证，消息已撤回并再次禁言。"
-                            )
-                            return  # 消息已处理
-                    except ValueError as ve:
-                        logging.error(
-                            f"解析用户 {user_id} 时间戳失败: {ve}，时间戳: {join_timestamp_str}"
-                        )
             # 其他群消息处理逻辑
             pass
     except Exception as e:
@@ -357,35 +278,6 @@ async def handle_private_message(websocket, msg):
                             # 更新状态
                             user_verification[user_group_key]["status"] = "verified"
                             save_user_verification_status(user_verification)
-
-                            # 撤回初始验证提示消息
-                            echo_messages = load_echo_messages()
-                            initial_prompt_echo_key = (
-                                f"initial_verify_{user_id}_{group_id}"
-                            )
-                            if initial_prompt_echo_key in echo_messages:
-                                message_to_recall_id = echo_messages.pop(
-                                    initial_prompt_echo_key
-                                )
-                                try:
-                                    await delete_msg(websocket, message_to_recall_id)
-                                    logging.info(
-                                        f"成功撤回用户 {user_id} 在群 {group_id} 的初始验证提示消息 {message_to_recall_id}。"
-                                    )
-                                except Exception as e_recall:
-                                    logging.error(
-                                        f"撤回初始验证提示消息 {message_to_recall_id} 失败: {e_recall}"
-                                    )
-                                save_echo_messages(echo_messages)
-
-                            # 发送验证成功消息，并设置2分钟后撤回
-                            success_message_echo = f"success_verify_{user_id}_{group_id}_{int(time.time())}"
-                            await send_group_msg(
-                                websocket,
-                                group_id,
-                                f"[CQ:at,qq={user_id}] 恭喜你通过了验证！现在可以正常发言了。",
-                            )
-
                         else:
                             # 回答错误，减少尝试次数
                             remaining_attempts = (
@@ -467,11 +359,79 @@ async def handle_group_notice(websocket, msg):
         return
 
 
+# 检测是否超时
+async def check_timeout(websocket):
+    """扫描验证超时用户并踢出"""
+    user_verification = load_user_verification_status()
+    current_time = time.time()
+    logging.info(f"扫描验证超时用户")
+    for key in list(user_verification.keys()):
+        user_data = user_verification[key]
+
+        # 距离超时时间还剩10分钟时警告
+        if (
+            user_data.get("status") == "pending"
+            and not user_data.get("warning_sent_10_minutes", False)
+            and time.mktime(
+                time.strptime(
+                    user_data.get("timestamp", "1970-01-01 00:00:00"),
+                    "%Y-%m-%d %H:%M:%S",
+                )
+            )
+            + 20 * 60
+            < current_time
+        ):
+            # 标记已经发送过10分钟警告
+            user_verification[key]["warning_sent_10_minutes"] = True
+            save_user_verification_status(user_verification)
+            # 从键中提取用户ID和群组ID
+            user_id, group_id = key.split("_")
+            # 获取题目
+            expression, correct_answer = get_user_verification_question(
+                user_id, group_id
+            )
+            await send_group_msg(
+                websocket,
+                group_id,
+                f"[CQ:at,qq={user_id}] 距离验证超时还有10分钟，请尽快私聊我答案完成验证。你的计算式是：{expression}，你还有{user_data.get('remaining_attempts')}次机会",
+            )
+            logging.info(f"向群 {group_id} 用户 {user_id} 发送验证10分钟超时警告")
+
+        # 检查是否是未验证状态且超时
+        if (
+            user_data.get("status") == "pending"
+            and time.mktime(
+                time.strptime(
+                    user_data.get("timestamp", "1970-01-01 00:00:00"),
+                    "%Y-%m-%d %H:%M:%S",
+                )
+            )
+            + 30 * 60
+            < current_time
+        ):
+            # 从键中提取用户ID和群组ID
+            user_id, group_id = key.split("_")
+
+            # 更新用户状态
+            user_verification[key]["status"] = "timeout"
+            save_user_verification_status(user_verification)
+
+            # 踢出超时用户
+            await set_group_kick(websocket, group_id, user_id)
+            # 在群里通知踢出原因
+            await send_group_msg(
+                websocket,
+                group_id,
+                f"[CQ:at,qq={user_id}] 验证超时，即将踢出群聊。",
+            )
+            logging.info(f"向群 {group_id} 用户 {user_id} 发送验证超时踢出警告")
+
+
 # 处理新成员入群
 async def process_new_member(websocket, user_id, group_id):
     """处理新成员入群验证"""
     try:
-        # 禁言新成员30分钟
+        # 禁言新成员30天
         await set_group_ban(websocket, group_id, user_id, BAN_DURATION)
 
         # 生成数学表达式和答案
@@ -481,11 +441,10 @@ async def process_new_member(websocket, user_id, group_id):
         save_verification_question(user_id, group_id, expression, answer)
 
         # 在群里发送验证消息
-        initial_verify_echo = f"initial_verify_{user_id}_{group_id}"
         await send_group_msg(
             websocket,
             group_id,
-            f"[CQ:at,qq={user_id}] 欢迎加入本群！请私聊我回复下面计算结果完成验证，你将有{MAX_ATTEMPTS}次机会，并且你有30分钟的时间完成首次验证（期间您将被禁言）。如果在首次发言时仍未验证，您的发言将被撤回并被再次禁言。超时或回答全部错误将会被踢出群聊。\n你的计算式是：{expression}",
+            f"[CQ:at,qq={user_id}] 欢迎加入本群！请私聊我回复下面计算结果完成验证，你将有{MAX_ATTEMPTS}次机会，并且你有30分钟的时间，超时将会被踢出，如果全部错误将会被踢出群聊\n你的计算式是：{expression}",
         )
 
         # 保存用户验证状态
@@ -561,33 +520,9 @@ async def handle_response(websocket, msg):
     """处理回调事件"""
     try:
         echo = msg.get("echo")
-        if echo:
-            # 处理初始验证消息的回调，存储message_id用于后续撤回
-            if "请私聊我回复下面计算结果完成验证" in echo:
-                message_id = msg.get("data", {}).get("message_id")
-                if message_id:
-                    echo_messages = load_echo_messages()
-                    echo_messages[echo] = message_id
-                    save_echo_messages(echo_messages)
-                    logging.info(
-                        f"已存储初始验证消息 {message_id} (echo: {echo}) 待后续处理。"
-                    )
-
-            # 处理验证成功消息的回调，2分钟后撤回
-            elif "恭喜你通过了验证！" in echo:
-                message_id = msg.get("data", {}).get("message_id")
-                if message_id:
-                    asyncio.create_task(
-                        recall_message_after_delay(websocket, message_id, 120)
-                    )
-                    logging.info(
-                        f"已安排消息 {message_id} (echo: {echo}) 在2分钟后撤回。"
-                    )
-
-            # 原有的其他回调处理逻辑
-            elif echo.startswith("xxx"):
-                # 回调处理逻辑
-                pass
+        if echo and echo.startswith("xxx"):
+            # 回调处理逻辑
+            pass
     except Exception as e:
         logging.error(f"处理GroupEntryVerification回调事件失败: {e}")
         await send_group_msg(
@@ -636,26 +571,7 @@ async def handle_admin_approve(websocket, admin_id, command):
         # 解除用户禁言
         await set_group_ban(websocket, group_id, user_id, 0)
 
-        # 撤回初始验证提示消息
-        echo_messages = load_echo_messages()
-        initial_prompt_echo_key = f"initial_verify_{user_id}_{group_id}"
-        if initial_prompt_echo_key in echo_messages:
-            message_to_recall_id = echo_messages.pop(initial_prompt_echo_key)
-            try:
-                await delete_msg(websocket, message_to_recall_id)
-                logging.info(
-                    f"管理员批准，成功撤回用户 {user_id} 在群 {group_id} 的初始验证提示消息 {message_to_recall_id}。"
-                )
-            except Exception as e_recall:
-                logging.error(
-                    f"管理员批准，撤回初始验证提示消息 {message_to_recall_id} 失败: {e_recall}"
-                )
-            save_echo_messages(echo_messages)
-
         # 在群里通知用户已被批准
-        admin_approve_echo = (
-            f"admin_approve_verify_{user_id}_{group_id}_{int(time.time())}"
-        )
         await send_group_msg(
             websocket,
             group_id,
@@ -705,16 +621,6 @@ async def handle_admin_reject(websocket, admin_id, command):
         user_verification = load_user_verification_status()
         user_group_key = f"{user_id}_{group_id}"
 
-        # 清理可能存在的初始验证消息echo记录
-        echo_messages = load_echo_messages()
-        initial_prompt_echo_key = f"initial_verify_{user_id}_{group_id}"
-        if initial_prompt_echo_key in echo_messages:
-            echo_messages.pop(initial_prompt_echo_key)
-            save_echo_messages(echo_messages)
-            logging.info(
-                f"管理员拒绝，已清理用户 {user_id} 在群 {group_id} 的初始验证提示消息echo记录。"
-            )
-
         # 在群里通知用户已被拒绝
         await send_group_msg(
             websocket,
@@ -761,6 +667,8 @@ async def handle_events(websocket, msg):
         # 处理元事件
         if post_type == "meta_event":
             await handle_meta_event(websocket, msg)
+            # 检查超时用户
+            await check_timeout(websocket)
 
         # 处理消息事件
         elif post_type == "message":
