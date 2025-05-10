@@ -186,13 +186,11 @@ async def recall_message_after_delay(websocket, message_id, delay_seconds):
     """在指定延迟后撤回消息"""
     await asyncio.sleep(delay_seconds)
     try:
-        logging.info(
-            f"Attempting to recall message {message_id} after {delay_seconds}s delay."
-        )
-        await delete_msg(websocket, message_id)  # 假设 delete_msg 已在 app.api 中定义
-        logging.info(f"Successfully recalled message {message_id} after delay.")
+        logging.info(f"尝试在延迟 {delay_seconds}秒后撤回消息 {message_id}。")
+        await delete_msg(websocket, message_id)
+        logging.info(f"成功在延迟后撤回消息 {message_id}。")
     except Exception as e:
-        logging.error(f"Failed to recall message {message_id} after delay: {e}")
+        logging.error(f"延迟后撤回消息 {message_id} 失败: {e}")
 
 
 # 处理元事件，用于启动时确保数据目录存在
@@ -386,7 +384,6 @@ async def handle_private_message(websocket, msg):
                                 websocket,
                                 group_id,
                                 f"[CQ:at,qq={user_id}] 恭喜你通过了验证！现在可以正常发言了。",
-                                echo=success_message_echo,
                             )
 
                         else:
@@ -566,7 +563,7 @@ async def handle_response(websocket, msg):
         echo = msg.get("echo")
         if echo:
             # 处理初始验证消息的回调，存储message_id用于后续撤回
-            if echo.startswith("initial_verify_"):
+            if "请私聊我回复下面计算结果完成验证" in echo:
                 message_id = msg.get("data", {}).get("message_id")
                 if message_id:
                     echo_messages = load_echo_messages()
@@ -577,14 +574,12 @@ async def handle_response(websocket, msg):
                     )
 
             # 处理验证成功消息的回调，2分钟后撤回
-            elif echo.startswith("success_verify_") or echo.startswith(
-                "admin_approve_verify_"
-            ):
+            elif "恭喜你通过了验证！" in echo:
                 message_id = msg.get("data", {}).get("message_id")
                 if message_id:
                     asyncio.create_task(
                         recall_message_after_delay(websocket, message_id, 120)
-                    )  # 2分钟后撤回
+                    )
                     logging.info(
                         f"已安排消息 {message_id} (echo: {echo}) 在2分钟后撤回。"
                     )
