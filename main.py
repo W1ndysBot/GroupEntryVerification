@@ -223,12 +223,14 @@ async def handle_group_message(websocket, msg):
                         websocket,
                         group_id,
                         f"[CQ:at,qq={user_id}] 您尚未完成入群验证，消息已被撤回并禁言30天。请私聊我回答问题完成验证：{expression}",
+                        note=group_id + "_" + user_id,
                     )
                 else:
                     await send_group_msg(
                         websocket,
                         group_id,
                         f"[CQ:at,qq={user_id}] 您尚未完成入群验证，消息已被撤回并禁言30天。请私聊机器人完成验证。",
+                        note=group_id + "_" + user_id,
                     )
                 return  # 阻止后续处理
 
@@ -307,7 +309,9 @@ async def handle_private_message(websocket, msg):
 
                             # 撤回存储的验证消息
                             del_message = DelMessage()
-                            message_id_list = del_message.load_message_id_list()
+                            message_id_list = del_message.get_user_messages(
+                                group_id, user_id
+                            )
                             for message_id in message_id_list:
                                 await delete_msg(websocket, message_id)
 
@@ -328,6 +332,7 @@ async def handle_private_message(websocket, msg):
                                     websocket,
                                     group_id,
                                     f"[CQ:at,qq={user_id}] 回答错误！你还有{remaining_attempts}次机会。请重新计算：{expression}",
+                                    note=group_id + "_" + user_id,
                                 )
                             else:
                                 # 尝试次数用完，踢出群聊
@@ -342,12 +347,19 @@ async def handle_private_message(websocket, msg):
                                 # 更新状态
                                 user_verification[user_group_key]["status"] = "failed"
                                 save_user_verification_status(user_verification)
+                                del_message = DelMessage()
+                                message_id_list = del_message.get_user_messages(
+                                    group_id, user_id
+                                )
+                                for message_id in message_id_list:
+                                    await delete_msg(websocket, message_id)
                     except ValueError:
                         # 用户输入的不是数字，在群里提醒
                         await send_group_msg(
                             websocket,
                             group_id,
                             f"[CQ:at,qq={user_id}] 请私聊我一个数字作为答案。你的计算式是：{expression}",
+                            note=group_id + "_" + user_id,
                         )
 
                     return  # 处理完一个验证请求后返回
@@ -487,6 +499,11 @@ async def handle_response(websocket, msg):
         if not echo:  # 如果没有echo内容，直接返回
             return
 
+        # 解析echo，格式为：send_group_msg_group_id_user_id
+        echo = echo.replace("send_group_msg_", "")
+        group_id = echo.split("_")[0]
+        user_id = echo.split("_")[1]
+
         # 定义需要追踪的验证过程中的消息特征短语
         # 这些消息是用户验证过程中机器人发送的提示或指令
         verification_phrases_to_track = [
@@ -494,7 +511,6 @@ async def handle_response(websocket, msg):
             "欢迎加入本群！请私聊我回复下面计算结果完成验证",  # 新用户入群的验证提示
             "您尚未完成入群验证",  # 用户未验证发言时的提示 (涵盖两种具体提示)
             "回答错误！你还有",  # 用户回答错误后的提示
-            "验证失败，已被踢出群聊",  # 用户多次回答错误被踢出的提示
         ]
 
         found_match = False
@@ -507,7 +523,7 @@ async def handle_response(websocket, msg):
             # 如果 echo 中包含任意一个追踪的短语，
             # 则认为这是一条验证过程中的消息，使用 DelMessage 进行记录。
             del_message = DelMessage()
-            del_message.add_message_id_list(data.get("message_id"))
+            del_message.add_message(group_id, user_id, data.get("message_id"))
 
     except Exception as e:
         logging.error(f"处理GroupEntryVerification回调事件失败: {e}")
@@ -564,7 +580,7 @@ async def handle_admin_approve(websocket, admin_id, command):
         save_user_verification_status(user_verification)
         # 撤回存储的验证消息
         del_message = DelMessage()
-        message_id_list = del_message.load_message_id_list()
+        message_id_list = del_message.get_user_messages(group_id, user_id)
         for message_id in message_id_list:
             await delete_msg(websocket, message_id)
         # 通知管理员操作成功
