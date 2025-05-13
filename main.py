@@ -17,7 +17,7 @@ sys.path.append(
 from app.config import *
 from app.api import *
 from app.switch import load_switch, save_switch
-
+from app.scripts.GroupEntryVerification.del_message import DelMessage
 
 # 数据存储路径，实际开发时，请将GroupEntryVerification替换为具体的数据存放路径
 DATA_DIR = os.path.join(
@@ -304,6 +304,13 @@ async def handle_private_message(websocket, msg):
                             # 更新状态
                             user_verification[user_group_key]["status"] = "verified"
                             save_user_verification_status(user_verification)
+
+                            # 撤回存储的验证消息
+                            del_message = DelMessage(1)
+                            message_id_list = del_message.load_message_id_list()
+                            for message_id in message_id_list:
+                                await delete_msg(websocket, message_id)
+
                         else:
                             # 回答错误，减少尝试次数
                             remaining_attempts = (
@@ -476,16 +483,33 @@ async def handle_response(websocket, msg):
     """处理回调事件"""
     try:
         echo = msg.get("echo")
-        if echo and echo.startswith("xxx"):
-            # 回调处理逻辑
-            pass
+        if not echo:  # 如果没有echo内容，直接返回
+            return
+
+        # 定义需要追踪的验证过程中的消息特征短语
+        # 这些消息是用户验证过程中机器人发送的提示或指令
+        verification_phrases_to_track = [
+            "请私聊我一个数字作为答案",  # 用户输入非数字时的提示
+            "欢迎加入本群！请私聊我回复下面计算结果完成验证",  # 新用户入群的验证提示
+            "您尚未完成入群验证",  # 用户未验证发言时的提示 (涵盖两种具体提示)
+            "回答错误！你还有",  # 用户回答错误后的提示
+            "验证失败，已被踢出群聊",  # 用户多次回答错误被踢出的提示
+        ]
+
+        found_match = False
+        for phrase in verification_phrases_to_track:
+            if phrase in echo:
+                found_match = True
+                break
+
+        if found_match:
+            # 如果 echo 中包含任意一个追踪的短语，
+            # 则认为这是一条验证过程中的消息，使用 DelMessage 进行记录。
+            del_message = DelMessage(echo)
+            del_message.add_message_id_list()
+
     except Exception as e:
         logging.error(f"处理GroupEntryVerification回调事件失败: {e}")
-        await send_group_msg(
-            websocket,
-            msg.get("group_id"),
-            f"处理GroupEntryVerification回调事件失败，错误信息：{str(e)}",
-        )
         return
 
 
