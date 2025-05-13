@@ -306,7 +306,7 @@ async def handle_private_message(websocket, msg):
                             save_user_verification_status(user_verification)
 
                             # 撤回存储的验证消息
-                            del_message = DelMessage(1)
+                            del_message = DelMessage()
                             message_id_list = del_message.load_message_id_list()
                             for message_id in message_id_list:
                                 await delete_msg(websocket, message_id)
@@ -483,6 +483,7 @@ async def handle_response(websocket, msg):
     """处理回调事件"""
     try:
         echo = msg.get("echo")
+        data = msg.get("data")
         if not echo:  # 如果没有echo内容，直接返回
             return
 
@@ -505,8 +506,8 @@ async def handle_response(websocket, msg):
         if found_match:
             # 如果 echo 中包含任意一个追踪的短语，
             # 则认为这是一条验证过程中的消息，使用 DelMessage 进行记录。
-            del_message = DelMessage(echo)
-            del_message.add_message_id_list()
+            del_message = DelMessage()
+            del_message.add_message_id_list(data.get("message_id"))
 
     except Exception as e:
         logging.error(f"处理GroupEntryVerification回调事件失败: {e}")
@@ -561,7 +562,11 @@ async def handle_admin_approve(websocket, admin_id, command):
         # 更新用户状态
         user_verification[user_group_key]["status"] = "verified"
         save_user_verification_status(user_verification)
-
+        # 撤回存储的验证消息
+        del_message = DelMessage()
+        message_id_list = del_message.load_message_id_list()
+        for message_id in message_id_list:
+            await delete_msg(websocket, message_id)
         # 通知管理员操作成功
         await send_private_msg(
             websocket, admin_id, f"已批准用户 {user_id} 在群 {group_id} 的验证"

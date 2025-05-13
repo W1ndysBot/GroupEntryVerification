@@ -3,8 +3,7 @@ import json
 
 
 class DelMessage:
-    def __init__(self, message_id):
-        self.message_id = message_id
+    def __init__(self):
         self.DATA_DIR = os.path.join(
             os.path.dirname(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,23 +47,23 @@ class DelMessage:
         with open(self.data_file, "w") as f:
             json.dump(message_id_list, f)
 
-    def add_message_id_list(self):
+    def add_message_id_list(self, message_id):
         """
         添加当前消息ID到列表
 
         将当前实例的消息ID添加到消息ID列表中并保存
         """
         message_id_list = self.load_message_id_list()
-        message_id_list.append(self.message_id)
+        message_id_list.append(message_id)
         self.save_message_id_list(message_id_list)
 
-    def del_message_id_list(self):
+    def del_one_message_id_list(self, message_id):
         """
         从列表中删除当前消息ID
 
         如果当前实例的消息ID存在于列表中，则将其删除并保存更新后的列表
         """
         message_id_list = self.load_message_id_list()
-        if self.message_id in message_id_list:
-            message_id_list.remove(self.message_id)
+        if message_id in message_id_list:
+            message_id_list.remove(message_id)
             self.save_message_id_list(message_id_list)
