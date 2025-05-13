@@ -223,14 +223,14 @@ async def handle_group_message(websocket, msg):
                         websocket,
                         group_id,
                         f"[CQ:at,qq={user_id}] 您尚未完成入群验证，消息已被撤回并禁言30天。请私聊我回答问题完成验证：{expression}",
-                        note=group_id + "_" + user_id,
+                        note="GroupEntryVerification_" + group_id + "_" + user_id,
                     )
                 else:
                     await send_group_msg(
                         websocket,
                         group_id,
                         f"[CQ:at,qq={user_id}] 您尚未完成入群验证，消息已被撤回并禁言30天。请私聊机器人完成验证。",
-                        note=group_id + "_" + user_id,
+                        note="GroupEntryVerification_" + group_id + "_" + user_id,
                     )
                 return  # 阻止后续处理
 
@@ -314,6 +314,9 @@ async def handle_private_message(websocket, msg):
                             )
                             for message_id in message_id_list:
                                 await delete_msg(websocket, message_id)
+                                del_message.remove_message(
+                                    group_id, user_id, message_id
+                                )
 
                         else:
                             # 回答错误，减少尝试次数
@@ -332,7 +335,10 @@ async def handle_private_message(websocket, msg):
                                     websocket,
                                     group_id,
                                     f"[CQ:at,qq={user_id}] 回答错误！你还有{remaining_attempts}次机会。请重新计算：{expression}",
-                                    note=group_id + "_" + user_id,
+                                    note="GroupEntryVerification_"
+                                    + group_id
+                                    + "_"
+                                    + user_id,
                                 )
                             else:
                                 # 尝试次数用完，踢出群聊
@@ -353,14 +359,52 @@ async def handle_private_message(websocket, msg):
                                 )
                                 for message_id in message_id_list:
                                     await delete_msg(websocket, message_id)
+                                    del_message.remove_message(
+                                        group_id, user_id, message_id
+                                    )
                     except ValueError:
-                        # 用户输入的不是数字，在群里提醒
-                        await send_group_msg(
-                            websocket,
-                            group_id,
-                            f"[CQ:at,qq={user_id}] 请私聊我一个数字作为答案。你的计算式是：{expression}",
-                            note=group_id + "_" + user_id,
+                        # 用户输入的不是数字，也视为回答错误，减少尝试次数
+                        remaining_attempts = (
+                            user_verification[user_group_key]["remaining_attempts"] - 1
                         )
+                        user_verification[user_group_key][
+                            "remaining_attempts"
+                        ] = remaining_attempts
+                        save_user_verification_status(user_verification)
+
+                        if remaining_attempts > 0:
+                            # 在群里通知剩余次数
+                            await send_group_msg(
+                                websocket,
+                                group_id,
+                                f"[CQ:at,qq={user_id}] 请输入一个数字作为答案！你还有{remaining_attempts}次机会。请重新计算：{expression}",
+                                note="GroupEntryVerification_"
+                                + group_id
+                                + "_"
+                                + user_id,
+                            )
+                        else:
+                            # 尝试次数用完，踢出群聊
+                            await set_group_kick(websocket, group_id, user_id)
+                            # 在群里通知踢出原因
+                            await send_group_msg(
+                                websocket,
+                                group_id,
+                                f"用户 {user_id} 验证失败，已被踢出群聊。",
+                            )
+
+                            # 更新状态
+                            user_verification[user_group_key]["status"] = "failed"
+                            save_user_verification_status(user_verification)
+                            del_message = DelMessage()
+                            message_id_list = del_message.get_user_messages(
+                                group_id, user_id
+                            )
+                            for message_id in message_id_list:
+                                await delete_msg(websocket, message_id)
+                                del_message.remove_message(
+                                    group_id, user_id, message_id
+                                )
 
                     return  # 处理完一个验证请求后返回
     except Exception as e:
@@ -422,6 +466,7 @@ async def process_new_member(websocket, user_id, group_id):
             websocket,
             group_id,
             f"[CQ:at,qq={user_id}] 欢迎加入本群！请私聊我回复下面计算结果完成验证，你将有{MAX_ATTEMPTS}次机会，如果全部错误将会被踢出群聊\n你的计算式是：{expression}",
+            note="GroupEntryVerification_" + group_id + "_" + user_id,
         )
 
         # 保存用户验证状态
@@ -499,31 +544,20 @@ async def handle_response(websocket, msg):
         if not echo:  # 如果没有echo内容，直接返回
             return
 
-        # 解析echo，格式为：send_group_msg_group_id_user_id
-        echo = echo.replace("send_group_msg_", "")
-        group_id = echo.split("_")[0]
-        user_id = echo.split("_")[1]
-
-        # 定义需要追踪的验证过程中的消息特征短语
-        # 这些消息是用户验证过程中机器人发送的提示或指令
-        verification_phrases_to_track = [
-            "请私聊我一个数字作为答案",  # 用户输入非数字时的提示
-            "欢迎加入本群！请私聊我回复下面计算结果完成验证",  # 新用户入群的验证提示
-            "您尚未完成入群验证",  # 用户未验证发言时的提示 (涵盖两种具体提示)
-            "回答错误！你还有",  # 用户回答错误后的提示
-        ]
-
-        found_match = False
-        for phrase in verification_phrases_to_track:
-            if phrase in echo:
-                found_match = True
-                break
-
-        if found_match:
+        if "GroupEntryVerification_" in echo:
             # 如果 echo 中包含任意一个追踪的短语，
             # 则认为这是一条验证过程中的消息，使用 DelMessage 进行记录。
+
+            # 解析echo，格式为：send_group_msg_GroupEntryVerification_{group_id}_{user_id}，例如：send_group_msg_GroupEntryVerification_1234567890_1234567890
+            echo = echo.replace("send_group_msg_GroupEntryVerification_", "")
+            group_id = echo.split("_")[0]
+            user_id = echo.split("_")[1]
+
             del_message = DelMessage()
             del_message.add_message(group_id, user_id, data.get("message_id"))
+            logging.info(
+                f"已记录用户 {user_id} 在群 {group_id} 的验证消息的message_id：{data.get('message_id')}"
+            )
 
     except Exception as e:
         logging.error(f"处理GroupEntryVerification回调事件失败: {e}")
@@ -583,6 +617,7 @@ async def handle_admin_approve(websocket, admin_id, command):
         message_id_list = del_message.get_user_messages(group_id, user_id)
         for message_id in message_id_list:
             await delete_msg(websocket, message_id)
+            del_message.remove_message(group_id, user_id, message_id)
         # 通知管理员操作成功
         await send_private_msg(
             websocket, admin_id, f"已批准用户 {user_id} 在群 {group_id} 的验证"
