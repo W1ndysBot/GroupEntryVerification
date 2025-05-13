@@ -206,6 +206,32 @@ async def handle_group_message(websocket, msg):
             return
         # 检查功能是否开启
         if load_function_status(group_id):
+            # 检查用户是否未验证
+            user_verification = load_user_verification_status()
+            user_group_key = f"{user_id}_{group_id}"
+            if (
+                user_group_key in user_verification
+                and user_verification[user_group_key].get("status") == "pending"
+            ):
+                # 如果用户未验证，撤回消息并禁言
+                await delete_msg(websocket, message_id)
+                await set_group_ban(websocket, group_id, user_id, BAN_DURATION)
+                expression, _ = get_user_verification_question(user_id, group_id)
+                # 发送提示消息
+                if expression:
+                    await send_group_msg(
+                        websocket,
+                        group_id,
+                        f"[CQ:at,qq={user_id}] 您尚未完成入群验证，消息已被撤回并禁言30天。请私聊我回答问题完成验证：{expression}",
+                    )
+                else:
+                    await send_group_msg(
+                        websocket,
+                        group_id,
+                        f"[CQ:at,qq={user_id}] 您尚未完成入群验证，消息已被撤回并禁言30天。请私聊机器人完成验证。",
+                    )
+                return  # 阻止后续处理
+
             # 其他群消息处理逻辑
             pass
     except Exception as e:
@@ -359,74 +385,6 @@ async def handle_group_notice(websocket, msg):
         return
 
 
-# 检测是否超时
-async def check_timeout(websocket):
-    """扫描验证超时用户并踢出"""
-    user_verification = load_user_verification_status()
-    current_time = time.time()
-    logging.info(f"扫描验证超时用户")
-    for key in list(user_verification.keys()):
-        user_data = user_verification[key]
-
-        # 距离超时时间还剩10分钟时警告
-        if (
-            user_data.get("status") == "pending"
-            and not user_data.get("warning_sent_10_minutes", False)
-            and time.mktime(
-                time.strptime(
-                    user_data.get("timestamp", "1970-01-01 00:00:00"),
-                    "%Y-%m-%d %H:%M:%S",
-                )
-            )
-            + 20 * 60
-            < current_time
-        ):
-            # 标记已经发送过10分钟警告
-            user_verification[key]["warning_sent_10_minutes"] = True
-            save_user_verification_status(user_verification)
-            # 从键中提取用户ID和群组ID
-            user_id, group_id = key.split("_")
-            # 获取题目
-            expression, correct_answer = get_user_verification_question(
-                user_id, group_id
-            )
-            await send_group_msg(
-                websocket,
-                group_id,
-                f"[CQ:at,qq={user_id}] 距离验证超时还有10分钟，请尽快私聊我答案完成验证。你的计算式是：{expression}，你还有{user_data.get('remaining_attempts')}次机会",
-            )
-            logging.info(f"向群 {group_id} 用户 {user_id} 发送验证10分钟超时警告")
-
-        # 检查是否是未验证状态且超时
-        if (
-            user_data.get("status") == "pending"
-            and time.mktime(
-                time.strptime(
-                    user_data.get("timestamp", "1970-01-01 00:00:00"),
-                    "%Y-%m-%d %H:%M:%S",
-                )
-            )
-            + 30 * 60
-            < current_time
-        ):
-            # 从键中提取用户ID和群组ID
-            user_id, group_id = key.split("_")
-
-            # 更新用户状态
-            user_verification[key]["status"] = "timeout"
-            save_user_verification_status(user_verification)
-
-            # 踢出超时用户
-            await set_group_kick(websocket, group_id, user_id)
-            # 在群里通知踢出原因
-            await send_group_msg(
-                websocket,
-                group_id,
-                f"[CQ:at,qq={user_id}] 验证超时，即将踢出群聊。",
-            )
-            logging.info(f"向群 {group_id} 用户 {user_id} 发送验证超时踢出警告")
-
-
 # 处理新成员入群
 async def process_new_member(websocket, user_id, group_id):
     """处理新成员入群验证"""
@@ -444,7 +402,7 @@ async def process_new_member(websocket, user_id, group_id):
         await send_group_msg(
             websocket,
             group_id,
-            f"[CQ:at,qq={user_id}] 欢迎加入本群！请私聊我回复下面计算结果完成验证，你将有{MAX_ATTEMPTS}次机会，并且你有30分钟的时间，超时将会被踢出，如果全部错误将会被踢出群聊\n你的计算式是：{expression}",
+            f"[CQ:at,qq={user_id}] 欢迎加入本群！请私聊我回复下面计算结果完成验证，你将有{MAX_ATTEMPTS}次机会，如果全部错误将会被踢出群聊\n你的计算式是：{expression}",
         )
 
         # 保存用户验证状态
@@ -452,8 +410,6 @@ async def process_new_member(websocket, user_id, group_id):
         user_verification[f"{user_id}_{group_id}"] = {
             "status": "pending",
             "remaining_attempts": MAX_ATTEMPTS,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
-            "warning_sent_10_minutes": False,
         }
         save_user_verification_status(user_verification)
 
@@ -667,8 +623,6 @@ async def handle_events(websocket, msg):
         # 处理元事件
         if post_type == "meta_event":
             await handle_meta_event(websocket, msg)
-            # 检查超时用户
-            await check_timeout(websocket)
 
         # 处理消息事件
         elif post_type == "message":
