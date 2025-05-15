@@ -700,11 +700,11 @@ async def handle_scan_verification(websocket, group_id, message_id, user_id):
     """处理管理员发送的扫描验证命令"""
     try:
         # 回复正在扫描的消息
-        await send_group_msg(
-            websocket,
-            group_id,
-            f"[CQ:reply,id={message_id}]正在扫描未验证用户...",
-        )
+        # await send_group_msg(
+        #     websocket,
+        #     group_id,
+        #     f"[CQ:reply,id={message_id}]正在扫描未验证用户...",
+        # )
 
         # 创建扫描验证对象
         scanner = ScanVerification()
