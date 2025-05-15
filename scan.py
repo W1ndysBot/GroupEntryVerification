@@ -136,7 +136,8 @@ class ScanVerification:
             current_warning_count = self.warning_record[user_key]
 
             # 添加到警告消息
-            warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证，当前警告第{current_warning_count}次，警告到达{MAX_WARNING_COUNT}次将会被踢群\n"
+            warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证\n"
+        warning_msg += f"当前警告次数：{current_warning_count}/{MAX_WARNING_COUNT}，超过{MAX_WARNING_COUNT}次将会被踢群"
 
         # 发送合并警告消息
         if warning_msg:
