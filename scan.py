@@ -121,10 +121,6 @@ class ScanVerification:
         """警告未验证的用户"""
         pending_users = self.get_pending_users(group_id)
 
-        if not pending_users:
-            await send_group_msg(websocket, group_id, "本群暂无未验证的用户")
-            return False
-
         # 构建警告消息
         warning_msg = ""
         for user in pending_users:
