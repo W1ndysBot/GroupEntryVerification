@@ -127,19 +127,19 @@ class ScanVerification:
 
         # 构建警告消息
         warning_msg = ""
-        current_warning_count = 0  # 初始化警告次数变量
 
         for user in pending_users:
             # 增加警告次数
             user_key = f"{user['user_id']}_{group_id}"
             self.warning_record[user_key] += 1
 
-            # 获取当前警告次数
+            # 获取当前用户的警告次数
             current_warning_count = self.warning_record[user_key]
 
-            # 添加到警告消息
-            warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证\n"
-        warning_msg += f"当前警告次数：{current_warning_count}/{MAX_WARNING_COUNT}，超过{MAX_WARNING_COUNT}次将会被踢群"
+            # 添加到警告消息，每个用户显示各自的警告次数
+            warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证 (警告: {current_warning_count}/{MAX_WARNING_COUNT})\n"
+
+        warning_msg += f"超过{MAX_WARNING_COUNT}次警告将会被踢群"
 
         # 发送合并警告消息
         if warning_msg:
@@ -156,7 +156,7 @@ class ScanVerification:
         return False
 
     async def check_and_kick_users(self, websocket, group_id):
-        """检查并踢出被警告超过三次的用户"""
+        """检查并踢出被警告超过MAX_WARNING_COUNT次的用户"""
         kicked_users = []
 
         for key, count in list(self.warning_record.items()):
