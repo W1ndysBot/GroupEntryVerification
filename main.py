@@ -18,6 +18,7 @@ from app.config import *
 from app.api import *
 from app.switch import load_switch, save_switch
 from app.scripts.GroupEntryVerification.del_message import DelMessage
+from app.scripts.GroupEntryVerification.scan import ScanVerification
 
 # 数据存储路径，实际开发时，请将GroupEntryVerification替换为具体的数据存放路径
 DATA_DIR = os.path.join(
@@ -39,6 +40,7 @@ BAN_DURATION = 30 * 24 * 60 * 60
 # 管理员审核命令
 ADMIN_APPROVE_CMD = "批准"  # 批准命令
 ADMIN_REJECT_CMD = "拒绝"  # 拒绝命令
+ADMIN_SCAN_CMD = "扫描验证"  # 扫描验证命令
 
 
 # 查看功能开关状态
@@ -204,6 +206,12 @@ async def handle_group_message(websocket, msg):
         if raw_message == "gev":
             await toggle_function_status(websocket, group_id, message_id, authorized)
             return
+
+        # 处理扫描验证命令
+        if raw_message == ADMIN_SCAN_CMD and authorized:
+            await handle_scan_verification(websocket, group_id, message_id, user_id)
+            return
+
         # 检查功能是否开启
         if load_function_status(group_id):
             # 检查用户是否未验证
@@ -684,6 +692,40 @@ async def handle_admin_reject(websocket, admin_id, command):
         logging.error(f"处理管理员拒绝命令失败: {e}")
         await send_private_msg(
             websocket, admin_id, f"处理拒绝命令失败，错误信息：{str(e)}"
+        )
+
+
+# 处理扫描验证命令
+async def handle_scan_verification(websocket, group_id, message_id, user_id):
+    """处理管理员发送的扫描验证命令"""
+    try:
+        # 回复正在扫描的消息
+        await send_group_msg(
+            websocket,
+            group_id,
+            f"[CQ:reply,id={message_id}]正在扫描未验证用户...",
+        )
+
+        # 创建扫描验证对象
+        scanner = ScanVerification()
+
+        # 执行扫描和警告
+        result = await scanner.warn_pending_users(websocket, group_id)
+
+        # 如果没有未验证用户，result将为False，但warn_pending_users已发送了提示消息
+        if not result:
+            logging.info(f"群 {group_id} 扫描验证完成，无未验证用户")
+            await send_group_msg(
+                websocket,
+                group_id,
+                f"[CQ:reply,id={message_id}]扫描验证完成，无未验证用户",
+            )
+    except Exception as e:
+        logging.error(f"执行扫描验证失败: {e}")
+        await send_group_msg(
+            websocket,
+            group_id,
+            f"[CQ:reply,id={message_id}]执行扫描验证失败，错误信息：{str(e)}",
         )
 
 
