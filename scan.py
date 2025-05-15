@@ -32,7 +32,7 @@ VERIFICATION_QUESTIONS_FILE = os.path.join(DATA_DIR, "verification_questions.jso
 WARNING_RECORD_FILE = os.path.join(DATA_DIR, "warning_record.json")
 
 # 最大警告次数
-MAX_WARNING_COUNT = 3
+MAX_WARNING_COUNT = 4
 
 
 class ScanVerification:
@@ -132,8 +132,11 @@ class ScanVerification:
             user_key = f"{user['user_id']}_{group_id}"
             self.warning_record[user_key] += 1
 
+            # 获取当前警告次数
+            current_warning_count = self.warning_record[user_key]
+
             # 添加到警告消息
-            warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证，剩余{user['remaining_attempts']}次机会，超过三次将会被踢群\n"
+            warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证，当前警告第{current_warning_count}次，警告到达{MAX_WARNING_COUNT}次将会被踢群\n"
 
         # 发送合并警告消息
         if warning_msg:
