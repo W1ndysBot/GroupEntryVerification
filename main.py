@@ -41,6 +41,7 @@ BAN_DURATION = 30 * 24 * 60 * 60
 ADMIN_APPROVE_CMD = "批准"  # 批准命令
 ADMIN_REJECT_CMD = "拒绝"  # 拒绝命令
 ADMIN_SCAN_CMD = "扫描验证"  # 扫描验证命令
+ADMIN_SCAN_PRIVATE_CMD = "扫描验证"  # 私聊扫描验证命令
 
 
 # 查看功能开关状态
@@ -272,6 +273,11 @@ async def handle_private_message(websocket, msg):
             # 处理管理员拒绝命令
             elif raw_message.startswith(ADMIN_REJECT_CMD):
                 await handle_admin_reject(websocket, user_id, raw_message)
+                return
+
+            # 处理管理员私聊扫描验证命令
+            elif raw_message.startswith(ADMIN_SCAN_PRIVATE_CMD):
+                await handle_private_scan_verification(websocket, user_id, raw_message)
                 return
 
         # 加载用户验证状态
@@ -726,6 +732,65 @@ async def handle_scan_verification(websocket, group_id, message_id, user_id):
             websocket,
             group_id,
             f"[CQ:reply,id={message_id}]执行扫描验证失败，错误信息：{str(e)}",
+        )
+
+
+# 添加私聊扫描验证处理函数
+async def handle_private_scan_verification(websocket, admin_id, command):
+    """处理管理员私聊发送的扫描验证命令"""
+    try:
+        # 确保是扫描验证命令
+        if not command.startswith(ADMIN_SCAN_PRIVATE_CMD):
+            return
+
+        # 解析命令参数
+        parts = command.strip().split()
+        if len(parts) < 2:
+            await send_private_msg(
+                websocket,
+                admin_id,
+                f"扫描验证命令格式错误，正确格式：{ADMIN_SCAN_PRIVATE_CMD} 群号",
+            )
+            return
+
+        # 获取群号
+        group_id = parts[1]
+
+        # 发送开始扫描的消息
+        await send_private_msg(
+            websocket,
+            admin_id,
+            f"正在扫描群 {group_id} 中未验证的用户...",
+        )
+
+        # 创建扫描验证对象
+        scanner = ScanVerification()
+
+        # 执行扫描和警告
+        result = await scanner.warn_pending_users(websocket, group_id)
+
+        # 扫描结果通知
+        if result:
+            await send_private_msg(
+                websocket,
+                admin_id,
+                f"群 {group_id} 扫描验证完成，发现并警告了未验证用户。",
+            )
+        else:
+            await send_private_msg(
+                websocket,
+                admin_id,
+                f"群 {group_id} 扫描验证完成，无未验证用户。",
+            )
+
+        logging.info(f"管理员 {admin_id} 通过私聊执行了群 {group_id} 的扫描验证")
+
+    except Exception as e:
+        logging.error(f"执行私聊扫描验证失败: {e}")
+        await send_private_msg(
+            websocket,
+            admin_id,
+            f"执行扫描验证失败，错误信息：{str(e)}",
         )
 
 
