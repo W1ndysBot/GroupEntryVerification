@@ -121,8 +121,14 @@ class ScanVerification:
         """警告未验证的用户"""
         pending_users = self.get_pending_users(group_id)
 
+        # 如果没有未验证用户，直接返回False
+        if not pending_users:
+            return False
+
         # 构建警告消息
         warning_msg = ""
+        current_warning_count = 0  # 初始化警告次数变量
+
         for user in pending_users:
             # 增加警告次数
             user_key = f"{user['user_id']}_{group_id}"
