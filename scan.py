@@ -72,14 +72,14 @@ class ScanVerification:
     def _load_warning_record(self):
         """加载警告记录"""
         if not os.path.exists(WARNING_RECORD_FILE):
-            return defaultdict(int)
+            return {}  # 返回普通字典而不是defaultdict
         try:
             with open(WARNING_RECORD_FILE, "r", encoding="utf-8") as f:
-                # 使用defaultdict确保新用户的警告次数默认为0
-                return defaultdict(int, json.load(f))
+                # 返回普通字典而不是defaultdict
+                return json.load(f)
         except Exception as e:
             logging.error(f"加载警告记录失败: {e}")
-            return defaultdict(int)
+            return {}
 
     def _load_reached_limit(self):
         """加载达到警告上限的用户记录"""
@@ -158,8 +158,13 @@ class ScanVerification:
         about_to_kick_users = []
 
         for user in pending_users:
-            # 增加警告次数
             user_key = f"{user['user_id']}_{group_id}"
+
+            # 检查用户是否已有警告记录，如果没有则初始化为0而不是默认的自增
+            if user_key not in self.warning_record:
+                self.warning_record[user_key] = 0
+
+            # 增加警告次数
             self.warning_record[user_key] += 1
 
             # 获取当前用户的警告次数
