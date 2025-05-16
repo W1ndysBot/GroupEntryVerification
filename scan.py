@@ -172,8 +172,10 @@ class ScanVerification:
                     self.reached_limit[group_id].append(user["user_id"])
                     about_to_kick_users.append(user["user_id"])
                     about_to_kick_msg += f"[CQ:at,qq={user['user_id']}] "
+                # 达到警告上限的用户不添加到普通警告消息
+                continue
 
-            # 添加到警告消息
+            # 只为未达到警告上限的用户添加到警告消息
             warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证 (警告: {current_warning_count}/{MAX_WARNING_COUNT})\n"
 
         warning_msg += f"超过{MAX_WARNING_COUNT}次警告将在下次扫描时被踢群"
@@ -252,11 +254,13 @@ class ScanVerification:
             self._save_reached_limit()
 
             # 如果有用户被踢出，发送通知
-            users_str = "，".join(kicked_users)
+            users_str_warning_msg = (
+                f"[CQ:at,qq={user_id}]" for user_id in kicked_users
+            )
             await send_group_msg(
                 websocket,
                 group_id,
-                f"以下用户因多次未完成验证已被踢出群聊：{users_str}",
+                f"{users_str_warning_msg}因多次未完成验证已被踢出群聊",
             )
 
             # 保存更新的警告记录
