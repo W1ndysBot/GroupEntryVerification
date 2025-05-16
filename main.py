@@ -705,20 +705,13 @@ async def handle_admin_reject(websocket, admin_id, command):
 async def handle_scan_verification(websocket, group_id, message_id, user_id):
     """处理管理员发送的扫描验证命令"""
     try:
-        # 回复正在扫描的消息
-        # await send_group_msg(
-        #     websocket,
-        #     group_id,
-        #     f"[CQ:reply,id={message_id}]正在扫描未验证用户...",
-        # )
-
         # 创建扫描验证对象
         scanner = ScanVerification()
 
         # 执行扫描和警告
         result = await scanner.warn_pending_users(websocket, group_id)
 
-        # 如果没有未验证用户，result将为False，但warn_pending_users已发送了提示消息
+        # 如果没有未验证用户，result将为False
         if not result:
             logging.info(f"群 {group_id} 扫描验证完成，无未验证用户")
             await send_group_msg(
@@ -774,7 +767,7 @@ async def handle_private_scan_verification(websocket, admin_id, command):
             await send_private_msg(
                 websocket,
                 admin_id,
-                f"群 {group_id} 扫描验证完成，发现并警告了未验证用户。",
+                f"群 {group_id} 扫描验证完成，已处理未验证用户。",
             )
         else:
             await send_private_msg(
