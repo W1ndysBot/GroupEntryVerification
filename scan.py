@@ -34,7 +34,7 @@ WARNING_RECORD_FILE = os.path.join(DATA_DIR, "warning_record.json")
 REACHED_LIMIT_FILE = os.path.join(DATA_DIR, "reached_limit.json")
 
 # 最大警告次数
-MAX_WARNING_COUNT = 4
+MAX_WARNING_COUNT = 3
 
 
 class ScanVerification:
@@ -154,7 +154,6 @@ class ScanVerification:
 
         # 构建警告消息
         warning_msg = ""
-        about_to_kick_msg = ""
         about_to_kick_users = []
 
         for user in pending_users:
@@ -170,19 +169,21 @@ class ScanVerification:
             # 获取当前用户的警告次数
             current_warning_count = self.warning_record[user_key]
 
-            # 如果用户达到警告上限，添加到即将踢出的列表
+            # 根据警告次数构建消息
             if current_warning_count >= MAX_WARNING_COUNT:
+                # 这是最后一次警告，添加到待踢出列表
                 if group_id not in self.reached_limit:
                     self.reached_limit[group_id] = []
                 if user["user_id"] not in self.reached_limit[group_id]:
                     self.reached_limit[group_id].append(user["user_id"])
                     about_to_kick_users.append(user["user_id"])
-                    about_to_kick_msg += f"[CQ:at,qq={user['user_id']}] "
-                # 达到警告上限的用户不添加到普通警告消息
-                continue
 
-            # 只为未达到警告上限的用户添加到警告消息
-            warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证 (警告: {current_warning_count}/{MAX_WARNING_COUNT})\n"
+                # 格式化最后一次警告消息，包含计算式和强调这是最后一次机会
+                warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证 (警告: {current_warning_count}/{MAX_WARNING_COUNT})\n这是最后一次警告，下次扫描时将被踢出群聊！\n"
+            else:
+                # 普通警告消息
+                warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证 (警告: {current_warning_count}/{MAX_WARNING_COUNT})\n"
+
         # 如果警告消息不为空，则添加超过警告上限的消息
         if warning_msg:
             warning_msg += f"超过{MAX_WARNING_COUNT}次警告将在下次扫描时被踢群"
@@ -191,14 +192,8 @@ class ScanVerification:
         if warning_msg:
             await send_group_msg(websocket, group_id, warning_msg.strip())
 
-        # 如果有即将被踢出的用户，发送即将踢出的消息
-        if about_to_kick_msg:
-            kick_warning = (
-                f"{about_to_kick_msg}因多次未完成验证，下次扫描时将被踢出群聊！"
-            )
-            await send_group_msg(websocket, group_id, kick_warning)
-
-            # 同时通知管理员
+        # 同时通知管理员有关即将被踢出的用户
+        if about_to_kick_users:
             from app.config import owner_id
 
             for admin_id in owner_id:
