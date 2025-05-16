@@ -142,14 +142,15 @@ class ScanVerification:
 
     async def warn_pending_users(self, websocket, group_id):
         """警告未验证的用户"""
+        # 先处理上次达到警告上限的用户
+        kick_result = await self.check_and_kick_users(websocket, group_id)
+
+        # 重新获取未验证用户，确保踢出后的用户不会被重新计算
         pending_users = self.get_pending_users(group_id)
 
-        # 先处理上次达到警告上限的用户
-        await self.check_and_kick_users(websocket, group_id)
-
-        # 如果没有未验证用户，直接返回False
+        # 如果没有未验证用户，直接返回
         if not pending_users:
-            return False
+            return kick_result  # 返回是否有用户被踢出的结果
 
         # 构建警告消息
         warning_msg = ""
@@ -177,8 +178,9 @@ class ScanVerification:
 
             # 只为未达到警告上限的用户添加到警告消息
             warning_msg += f"[CQ:at,qq={user['user_id']}] 请及时私聊我【{user['expression']}】的答案完成验证 (警告: {current_warning_count}/{MAX_WARNING_COUNT})\n"
-
-        warning_msg += f"超过{MAX_WARNING_COUNT}次警告将在下次扫描时被踢群"
+        # 如果警告消息不为空，则添加超过警告上限的消息
+        if warning_msg:
+            warning_msg += f"超过{MAX_WARNING_COUNT}次警告将在下次扫描时被踢群"
 
         # 发送合并警告消息
         if warning_msg:
@@ -225,6 +227,7 @@ class ScanVerification:
                 # 从验证状态中移除
                 if user_key in self.user_verification:
                     self.user_verification[user_key]["status"] = "kicked"
+                    # 立即保存状态更新
                     with open(USER_VERIFICATION_FILE, "w", encoding="utf-8") as f:
                         json.dump(
                             self.user_verification,
@@ -232,6 +235,9 @@ class ScanVerification:
                             ensure_ascii=False,
                             indent=4,
                         )
+
+                # 立即重新加载用户验证状态，确保后续操作使用最新数据
+                self.user_verification = self._load_user_verification()
 
                 # 从验证问题中移除
                 verification_questions = self._load_verification_questions()
@@ -247,14 +253,13 @@ class ScanVerification:
                 )
             except Exception as e:
                 logging.error(f"踢出用户 {user_id} 失败: {e}")
-
         # 清空该群组的达到警告上限用户列表
         if kicked_users:
             self.reached_limit[group_id] = []
             self._save_reached_limit()
 
             # 如果有用户被踢出，发送通知
-            users_str_warning_msg = (
+            users_str_warning_msg = "".join(
                 f"[CQ:at,qq={user_id}]" for user_id in kicked_users
             )
             await send_group_msg(
