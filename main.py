@@ -43,6 +43,11 @@ ADMIN_REJECT_CMD = "拒绝"  # 拒绝命令
 ADMIN_SCAN_CMD = "扫描验证"  # 扫描验证命令
 ADMIN_SCAN_PRIVATE_CMD = "扫描验证"  # 私聊扫描验证命令
 
+# 警告记录文件
+WARNING_RECORD_FILE = os.path.join(DATA_DIR, "warning_record.json")
+# 达到警告上限用户记录文件
+REACHED_LIMIT_FILE = os.path.join(DATA_DIR, "reached_limit.json")
+
 
 # 查看功能开关状态
 def load_function_status(group_id):
@@ -320,6 +325,9 @@ async def handle_private_message(websocket, msg):
                             # 更新状态
                             user_verification[user_group_key]["status"] = "verified"
                             save_user_verification_status(user_verification)
+
+                            # 清理用户验证相关数据
+                            clean_user_verification_data(user_id, group_id)
 
                             # 撤回存储的验证消息
                             del_message = DelMessage()
@@ -626,6 +634,10 @@ async def handle_admin_approve(websocket, admin_id, command):
         # 更新用户状态
         user_verification[user_group_key]["status"] = "verified"
         save_user_verification_status(user_verification)
+
+        # 清理用户验证相关数据
+        clean_user_verification_data(user_id, group_id)
+
         # 撤回存储的验证消息
         del_message = DelMessage()
         message_id_list = del_message.get_user_messages(group_id, user_id)
@@ -785,6 +797,49 @@ async def handle_private_scan_verification(websocket, admin_id, command):
             admin_id,
             f"执行扫描验证失败，错误信息：{str(e)}",
         )
+
+
+# 清理用户验证相关数据
+def clean_user_verification_data(user_id, group_id):
+    """清理用户验证成功后的相关数据"""
+    try:
+        user_group_key = f"{user_id}_{group_id}"
+
+        # 清理验证问题
+        questions = load_verification_questions()
+        if user_group_key in questions:
+            del questions[user_group_key]
+            with open(VERIFICATION_QUESTIONS_FILE, "w", encoding="utf-8") as f:
+                json.dump(questions, f, ensure_ascii=False, indent=4)
+
+        # 清理警告记录
+        warning_record = {}
+        if os.path.exists(WARNING_RECORD_FILE):
+            with open(WARNING_RECORD_FILE, "r", encoding="utf-8") as f:
+                warning_record = json.load(f)
+
+        if user_group_key in warning_record:
+            del warning_record[user_group_key]
+            with open(WARNING_RECORD_FILE, "w", encoding="utf-8") as f:
+                json.dump(warning_record, f, ensure_ascii=False, indent=4)
+
+        # 清理警告上限记录
+        reached_limit = {}
+        if os.path.exists(REACHED_LIMIT_FILE):
+            with open(REACHED_LIMIT_FILE, "r", encoding="utf-8") as f:
+                reached_limit = json.load(f)
+
+        if group_id in reached_limit and user_id in reached_limit[group_id]:
+            reached_limit[group_id].remove(user_id)
+            # 如果组为空，删除该组
+            if not reached_limit[group_id]:
+                del reached_limit[group_id]
+            with open(REACHED_LIMIT_FILE, "w", encoding="utf-8") as f:
+                json.dump(reached_limit, f, ensure_ascii=False, indent=4)
+
+        logging.info(f"已清理用户 {user_id} 在群 {group_id} 的验证相关数据")
+    except Exception as e:
+        logging.error(f"清理用户验证数据失败: {e}")
 
 
 # 统一事件处理入口

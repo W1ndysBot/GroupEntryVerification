@@ -231,6 +231,15 @@ class ScanVerification:
                             indent=4,
                         )
 
+                # 从验证问题中移除
+                verification_questions = self._load_verification_questions()
+                if user_key in verification_questions:
+                    del verification_questions[user_key]
+                    with open(VERIFICATION_QUESTIONS_FILE, "w", encoding="utf-8") as f:
+                        json.dump(
+                            verification_questions, f, ensure_ascii=False, indent=4
+                        )
+
                 logging.info(
                     f"用户 {user_id} 被警告超过 {MAX_WARNING_COUNT} 次，已被踢出群 {group_id}"
                 )
