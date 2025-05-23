@@ -459,6 +459,9 @@ async def handle_group_notice(websocket, msg):
         # 检测新成员入群事件
         if notice_type == "group_increase":
             await process_new_member(websocket, user_id, group_id)
+        # 检测成员离开事件
+        if notice_type == "group_decrease":
+            await process_member_leave(websocket, user_id, group_id)
 
     except Exception as e:
         logging.error(f"处理GroupEntryVerification群通知失败: {e}")
@@ -531,6 +534,47 @@ async def process_new_member(websocket, user_id, group_id):
             websocket,
             group_id,
             f"处理新成员 {user_id} 入群验证失败，错误信息：{str(e)}",
+        )
+
+
+# 处理成员退群
+async def process_member_leave(websocket, user_id, group_id):
+    """处理成员退群，清理未验证用户的相关数据"""
+    try:
+        # 在群内发送退群通知
+        await send_group_msg(websocket, group_id, f"用户 {user_id} 退出了本群")
+
+        # 加载用户验证状态
+        user_verification = load_user_verification_status()
+        user_group_key = f"{user_id}_{group_id}"
+
+        # 检查用户是否在验证状态中
+        if user_group_key in user_verification:
+            # 记录日志
+            status = user_verification[user_group_key].get("status", "unknown")
+            logging.info(f"用户 {user_id} 离开群 {group_id}，验证状态为: {status}")
+
+            # 从验证状态中移除用户
+            del user_verification[user_group_key]
+            save_user_verification_status(user_verification)
+
+            # 清理用户验证相关数据
+            clean_user_verification_data(user_id, group_id)
+
+            # 清理删除消息记录
+            del_message = DelMessage()
+            message_id_list = del_message.get_user_messages(group_id, user_id)
+            for message_id in message_id_list:
+                await delete_msg(websocket, message_id)
+                del_message.remove_message(group_id, user_id, message_id)
+
+            logging.info(f"已清理离开群 {group_id} 的用户 {user_id} 的验证数据")
+    except Exception as e:
+        logging.error(f"处理成员退群事件失败: {e}")
+        await send_group_msg(
+            websocket,
+            group_id,
+            f"处理用户 {user_id} 退群事件失败，错误信息：{str(e)}",
         )
 
 
