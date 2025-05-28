@@ -764,6 +764,17 @@ async def handle_scan_verification(websocket, group_id, message_id, user_id):
         # 创建扫描验证对象
         scanner = ScanVerification()
 
+        # 支持扫描所有群：group_id为None时自动扫描
+        if group_id is None:
+            result = await scanner.warn_pending_users(websocket, None)
+            if not result:
+                await send_group_msg(
+                    websocket,
+                    group_id if group_id else user_id,
+                    f"[CQ:reply,id={message_id}]扫描验证完成，无未验证用户",
+                )
+            return
+
         # 执行扫描和警告
         result = await scanner.warn_pending_users(websocket, group_id)
 
@@ -794,12 +805,28 @@ async def handle_private_scan_verification(websocket, admin_id, command):
 
         # 解析命令参数
         parts = command.strip().split()
+        # 支持无群号参数，自动扫描所有群
         if len(parts) < 2:
+            # 无群号，扫描所有群
+            scanner = ScanVerification()
             await send_private_msg(
                 websocket,
                 admin_id,
-                f"扫描验证命令格式错误，正确格式：{ADMIN_SCAN_PRIVATE_CMD} 群号",
+                f"正在扫描所有群中未验证的用户...",
             )
+            result = await scanner.warn_pending_users(websocket, None)
+            if result:
+                await send_private_msg(
+                    websocket,
+                    admin_id,
+                    f"所有群扫描验证完成，已处理未验证用户。",
+                )
+            else:
+                await send_private_msg(
+                    websocket,
+                    admin_id,
+                    f"所有群扫描验证完成，无未验证用户。",
+                )
             return
 
         # 获取群号

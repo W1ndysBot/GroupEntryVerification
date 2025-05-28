@@ -6,6 +6,7 @@ import os
 import json
 import logging
 from collections import defaultdict
+import asyncio
 
 # 将路径添加到sys.path
 import sys
@@ -140,8 +141,32 @@ class ScanVerification:
 
         return pending_users
 
-    async def warn_pending_users(self, websocket, group_id):
-        """警告未验证的用户"""
+    def get_all_group_ids(self):
+        """获取所有存在未验证用户的群号列表"""
+        group_ids = set()
+        for key, value in self.user_verification.items():
+            if "_" in key and value.get("status") == "pending":
+                _, gid = key.split("_")
+                group_ids.add(gid)
+        return list(group_ids)
+
+    async def warn_all_pending_users(self, websocket):
+        """扫描所有群的未验证用户并进行提醒"""
+        group_ids = self.get_all_group_ids()
+        if not group_ids:
+            return False
+        has_pending = False
+        for gid in group_ids:
+            result = await self.warn_pending_users(websocket, gid)
+            if result:
+                has_pending = True
+            await asyncio.sleep(1)  # 每扫描一个群暂停一秒
+        return has_pending
+
+    async def warn_pending_users(self, websocket, group_id=None):
+        """警告未验证的用户，支持扫描所有群"""
+        if group_id is None:
+            return await self.warn_all_pending_users(websocket)
         # 先处理上次达到警告上限的用户
         kick_result = await self.check_and_kick_users(websocket, group_id)
 
