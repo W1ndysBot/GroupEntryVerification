@@ -285,7 +285,7 @@ class ScanVerification:
 
             # 如果有用户被踢出，发送通知
             users_str_warning_msg = "".join(
-                f"[CQ:at,qq={user_id}]" for user_id in kicked_users
+                f"[CQ:at,qq={user_id}]({user_id})" for user_id in kicked_users
             )
             await send_group_msg(
                 websocket,

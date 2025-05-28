@@ -236,14 +236,14 @@ async def handle_group_message(websocket, msg):
                     await send_group_msg(
                         websocket,
                         group_id,
-                        f"[CQ:at,qq={user_id}] 您尚未完成入群验证，消息已被撤回并禁言30天。请私聊我回答问题完成验证：{expression}",
+                        f"[CQ:at,qq={user_id}]({user_id}) 您尚未完成入群验证，消息已被撤回并禁言30天。请私聊我回答问题完成验证：{expression}",
                         note="GroupEntryVerification_" + group_id + "_" + user_id,
                     )
                 else:
                     await send_group_msg(
                         websocket,
                         group_id,
-                        f"[CQ:at,qq={user_id}] 您尚未完成入群验证，消息已被撤回并禁言30天。请私聊机器人完成验证。",
+                        f"[CQ:at,qq={user_id}]({user_id}) 您尚未完成入群验证，消息已被撤回并禁言30天。请私聊机器人完成验证。",
                         note="GroupEntryVerification_" + group_id + "_" + user_id,
                     )
                 return  # 阻止后续处理
@@ -319,7 +319,7 @@ async def handle_private_message(websocket, msg):
                             await send_group_msg(
                                 websocket,
                                 group_id,
-                                f"[CQ:at,qq={user_id}] 恭喜你通过了验证！现在可以正常发言了。",
+                                f"[CQ:at,qq={user_id}]({user_id}) 恭喜你通过了验证！现在可以正常发言了。",
                             )
 
                             # 更新状态
@@ -356,7 +356,7 @@ async def handle_private_message(websocket, msg):
                                 await send_group_msg(
                                     websocket,
                                     group_id,
-                                    f"[CQ:at,qq={user_id}] 回答错误！你还有{remaining_attempts}次机会。请重新计算：{expression}",
+                                    f"[CQ:at,qq={user_id}]({user_id}) 回答错误！你还有{remaining_attempts}次机会。请重新计算：{expression}",
                                     note="GroupEntryVerification_"
                                     + group_id
                                     + "_"
@@ -399,7 +399,7 @@ async def handle_private_message(websocket, msg):
                             await send_group_msg(
                                 websocket,
                                 group_id,
-                                f"[CQ:at,qq={user_id}] 请输入一个数字作为答案！你还有{remaining_attempts}次机会。请重新计算：{expression}",
+                                f"[CQ:at,qq={user_id}]({user_id}) 请输入一个数字作为答案！你还有{remaining_attempts}次机会。请重新计算：{expression}",
                                 note="GroupEntryVerification_"
                                 + group_id
                                 + "_"
@@ -490,7 +490,7 @@ async def process_new_member(websocket, user_id, group_id):
         await send_group_msg(
             websocket,
             group_id,
-            f"[CQ:at,qq={user_id}] 欢迎加入本群！请私聊我回复下面计算结果完成验证，你将有{MAX_ATTEMPTS}次机会，如果全部错误将会被踢出群聊\n你的计算式是：{expression}",
+            f"[CQ:at,qq={user_id}]({user_id}) 欢迎加入本群！请私聊我回复下面计算结果完成验证，你将有{MAX_ATTEMPTS}次机会，如果全部错误将会被踢出群聊\n你的计算式是：{expression}",
             note="GroupEntryVerification_" + group_id + "_" + user_id,
         )
 
@@ -672,7 +672,7 @@ async def handle_admin_approve(websocket, admin_id, command):
         await send_group_msg(
             websocket,
             group_id,
-            f"[CQ:at,qq={user_id}] 管理员手动通过了你的验证，现在可以正常发言了。",
+            f"[CQ:at,qq={user_id}]({user_id}) 管理员手动通过了你的验证，现在可以正常发言了。",
         )
 
         # 更新用户状态
@@ -731,7 +731,7 @@ async def handle_admin_reject(websocket, admin_id, command):
         await send_group_msg(
             websocket,
             group_id,
-            f"[CQ:at,qq={user_id}] 管理员拒绝了你的验证，你将被踢出群聊。",
+            f"[CQ:at,qq={user_id}]({user_id}) 管理员拒绝了你的验证，你将被踢出群聊。",
         )
 
         # 踢出用户
